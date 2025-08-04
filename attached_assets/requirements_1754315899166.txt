@@ -1,0 +1,11 @@
+pandas
+selenium
+webdriver-manager
+openpyxl
+xlrd
+Pillow
+flask
+flask-cors
+werkzeug
+flask-sqlalchemy
+flask-migrate
