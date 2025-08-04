@@ -22,29 +22,29 @@
     <!-- Key Metrics -->
     <div class="row mb-4">
         <div class="col-md-3 mb-3">
-            <div class="stat-card stat-card-green">
-                <div class="stat-icon">
-                    <i class="fas fa-percentage"></i>
-                </div>
-                <div class="stat-content">
-                    <div class="stat-title">Success Rate</div>
-                    <div class="stat-number" id="successRate">85%</div>
-                    <div class="stat-change text-success">
-                        <i class="fas fa-arrow-up"></i> +5%
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 mb-3">
             <div class="stat-card stat-card-blue">
                 <div class="stat-icon">
                     <i class="fas fa-envelope"></i>
                 </div>
                 <div class="stat-content">
-                    <div class="stat-title">Messages Sent</div>
-                    <div class="stat-number" id="messagesSent">3,847</div>
-                    <div class="stat-change text-success">
-                        <i class="fas fa-arrow-up"></i> +12%
+                    <div class="stat-title">Total Messages Sent</div>
+                    <div class="stat-number" id="totalMessagesSent">0</div>
+                    <div class="stat-change text-muted">
+                        <i class="fas fa-info-circle"></i> From campaign history
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-green">
+                <div class="stat-icon">
+                    <i class="fas fa-bullhorn"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Total Campaigns</div>
+                    <div class="stat-number" id="totalCampaigns">0</div>
+                    <div class="stat-change text-muted">
+                        <i class="fas fa-info-circle"></i> Created campaigns
                     </div>
                 </div>
             </div>
@@ -55,10 +55,10 @@
                     <i class="fas fa-users"></i>
                 </div>
                 <div class="stat-content">
-                    <div class="stat-title">Customers Reached</div>
-                    <div class="stat-number" id="customersReached">1,284</div>
-                    <div class="stat-change text-success">
-                        <i class="fas fa-arrow-up"></i> +8%
+                    <div class="stat-title">Total Customers</div>
+                    <div class="stat-number" id="totalCustomers">0</div>
+                    <div class="stat-change text-muted">
+                        <i class="fas fa-info-circle"></i> In database
                     </div>
                 </div>
             </div>
@@ -66,13 +66,13 @@
         <div class="col-md-3 mb-3">
             <div class="stat-card stat-card-yellow">
                 <div class="stat-icon">
-                    <i class="fas fa-chart-line"></i>
+                    <i class="fas fa-user-check"></i>
                 </div>
                 <div class="stat-content">
-                    <div class="stat-title">Avg Response Rate</div>
-                    <div class="stat-number" id="responseRate">23%</div>
-                    <div class="stat-change text-success">
-                        <i class="fas fa-arrow-up"></i> +3%
+                    <div class="stat-title">Opted-In Customers</div>
+                    <div class="stat-number" id="optedInCustomers">0</div>
+                    <div class="stat-change text-muted">
+                        <i class="fas fa-info-circle"></i> Ready to receive messages
                     </div>
                 </div>
             </div>
@@ -81,56 +81,32 @@
 
     <!-- Charts Row 1 -->
     <div class="row mb-4">
-        <div class="col-md-8">
-            <div class="dashboard-card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">Message Volume Trend</h5>
-                </div>
-                <div class="card-body">
-                    <canvas id="messageVolumeChart" height="100"></canvas>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="dashboard-card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">Success vs Failure Rate</h5>
-                </div>
-                <div class="card-body">
-                    <canvas id="successRateChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Charts Row 2 -->
-    <div class="row mb-4">
         <div class="col-md-6">
             <div class="dashboard-card">
                 <div class="card-header">
-                    <h5 class="card-title mb-0">Campaign Performance</h5>
+                    <h5 class="card-title mb-0">Campaigns by Status</h5>
                 </div>
                 <div class="card-body">
-                    <canvas id="campaignChart" height="150"></canvas>
+                    <canvas id="campaignStatusChart"></canvas>
                 </div>
             </div>
         </div>
         <div class="col-md-6">
             <div class="dashboard-card">
                 <div class="card-header">
-                    <h5 class="card-title mb-0">Customer Growth</h5>
+                    <h5 class="card-title mb-0">Customer Status Distribution</h5>
                 </div>
                 <div class="card-body">
-                    <canvas id="customerGrowthChart" height="150"></canvas>
+                    <canvas id="customerStatusChart"></canvas>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Performance Table -->
+    <!-- Recent Campaigns Table -->
     <div class="dashboard-card">
         <div class="card-header">
-            <h5 class="card-title mb-0">Top Performing Campaigns</h5>
+            <h5 class="card-title mb-0">Recent Campaigns</h5>
         </div>
         <div class="card-body">
             <div class="table-responsive">
@@ -138,37 +114,14 @@
                     <thead>
                         <tr>
                             <th>Campaign Name</th>
-                            <th>Messages Sent</th>
-                            <th>Success Rate</th>
-                            <th>Response Rate</th>
-                            <th>Date</th>
+                            <th>Created Date</th>
                             <th>Status</th>
+                            <th>Message Preview</th>
                         </tr>
                     </thead>
-                    <tbody id="performanceTable">
+                    <tbody id="recentCampaignsTable">
                         <tr>
-                            <td>Black Friday Sale</td>
-                            <td>1,250</td>
-                            <td><span class="text-success">92%</span></td>
-                            <td><span class="text-info">28%</span></td>
-                            <td>2024-01-15</td>
-                            <td><span class="status-badge status-completed">Completed</span></td>
-                        </tr>
-                        <tr>
-                            <td>New Year Wishes</td>
-                            <td>2,100</td>
-                            <td><span class="text-success">89%</span></td>
-                            <td><span class="text-info">31%</span></td>
-                            <td>2024-01-01</td>
-                            <td><span class="status-badge status-completed">Completed</span></td>
-                        </tr>
-                        <tr>
-                            <td>Product Launch</td>
-                            <td>850</td>
-                            <td><span class="text-warning">76%</span></td>
-                            <td><span class="text-info">19%</span></td>
-                            <td>2024-01-10</td>
-                            <td><span class="status-badge status-completed">Completed</span></td>
+                            <td colspan="4" class="text-center text-muted">No campaigns found</td>
                         </tr>
                     </tbody>
                 </table>
@@ -191,37 +144,68 @@ async function loadAnalyticsData() {
         const response = await fetch('/api/analytics');
         const data = await response.json();
         
-        initializeCharts(data);
         updateMetrics(data);
+        initializeCharts(data);
+        updateRecentCampaignsTable(data.recent_campaigns);
     } catch (error) {
         console.error('Error loading analytics data:', error);
-        // Use default/demo data if API fails
-        initializeChartsWithDemoData();
+        updateMetrics({
+            total_customers: 0,
+            opted_in_customers: 0,
+            total_campaigns: 0,
+            recent_campaigns: []
+        });
     }
 }
 
+function updateMetrics(data) {
+    document.getElementById('totalMessagesSent').textContent = '0'; // Will be updated when message tracking is implemented
+    document.getElementById('totalCampaigns').textContent = data.total_campaigns || 0;
+    document.getElementById('totalCustomers').textContent = data.total_customers || 0;
+    document.getElementById('optedInCustomers').textContent = data.opted_in_customers || 0;
+}
+
+function updateRecentCampaignsTable(campaigns) {
+    const tableBody = document.getElementById('recentCampaignsTable');
+    
+    if (!campaigns || campaigns.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No campaigns found</td></tr>';
+        return;
+    }
+    
+    tableBody.innerHTML = campaigns.map(campaign => `
+        <tr>
+            <td><strong>${campaign.name}</strong></td>
+            <td>${campaign.created_at}</td>
+            <td><span class="status-badge status-${campaign.status}">${campaign.status}</span></td>
+            <td class="text-muted">${campaign.message}</td>
+        </tr>
+    `).join('');
+}
+
 function initializeCharts(data) {
-    // Message Volume Chart
-    const messageVolumeCtx = document.getElementById('messageVolumeChart').getContext('2d');
-    charts.messageVolume = new Chart(messageVolumeCtx, {
-        type: 'line',
+    // Campaign Status Chart
+    const campaignStatusCtx = document.getElementById('campaignStatusChart').getContext('2d');
+    charts.campaignStatus = new Chart(campaignStatusCtx, {
+        type: 'doughnut',
         data: {
-            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+            labels: ['Draft', 'Active', 'Completed'],
             datasets: [{
-                label: 'Messages Sent',
-                data: data.message_volume || [1200, 1800, 2200, 2800, 3200, 3800],
-                borderColor: '#25D366',
-                backgroundColor: 'rgba(37, 211, 102, 0.1)',
-                tension: 0.4,
-                fill: true
+                data: [
+                    data.draft_campaigns || 0,
+                    data.active_campaigns || 0,
+                    data.completed_campaigns || 0
+                ],
+                backgroundColor: ['#ffc107', '#17a2b8', '#28a745'],
+                borderWidth: 0
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
+            maintainAspectRatio: true,
             plugins: {
                 legend: {
-                    display: false
+                    position: 'bottom'
                 }
             },
             scales: {

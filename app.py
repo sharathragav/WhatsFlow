@@ -412,17 +412,7 @@ def get_campaigns():
     campaigns_list = Campaign.query.all()
     return jsonify([campaign.to_dict() for campaign in campaigns_list])
 
-@app.route('/api/analytics', methods=['GET'])
-def get_analytics():
-    """Get analytics data"""
-    analytics_data = {
-        'success_rate': 85,
-        'failure_rate': 15,
-        'monthly_campaigns': [12, 15, 18, 22, 19, 25],
-        'customer_growth': [100, 150, 200, 280, 350, 420],
-        'message_volume': [1200, 1800, 2200, 2800, 3200, 3800]
-    }
-    return jsonify(analytics_data)
+# Removed duplicate analytics function - using real database version below
 
 # Customer Management API Endpoints
 @app.route('/api/customers', methods=['POST'])
@@ -790,6 +780,53 @@ def get_whatsapp_status():
             'message': f'WebDriver initialization failed: {str(e)}',
             'timestamp': datetime.now().isoformat()
         })
+
+# Analytics API - Real Database Data
+@app.route('/api/analytics', methods=['GET'])
+def get_real_analytics():
+    try:
+        # Get counts from database
+        total_customers = Customer.query.count()
+        opted_in_customers = Customer.query.filter_by(status='Opted In').count()
+        total_campaigns = Campaign.query.count()
+        
+        # Calculate campaign status distribution
+        draft_campaigns = Campaign.query.filter_by(status='draft').count()
+        completed_campaigns = Campaign.query.filter_by(status='completed').count()
+        active_campaigns = Campaign.query.filter_by(status='active').count()
+        
+        # Get customer status distribution
+        opted_out_customers = Customer.query.filter_by(status='Opted Out').count()
+        pending_customers = Customer.query.filter_by(status='Pending').count()
+        
+        # Get recent campaigns
+        recent_campaigns = Campaign.query.order_by(Campaign.created_at.desc()).limit(5).all()
+        
+        analytics_data = {
+            'total_customers': total_customers,
+            'opted_in_customers': opted_in_customers,
+            'opted_out_customers': opted_out_customers,
+            'pending_customers': pending_customers,
+            'total_campaigns': total_campaigns,
+            'draft_campaigns': draft_campaigns,
+            'completed_campaigns': completed_campaigns,
+            'active_campaigns': active_campaigns,
+            'recent_campaigns': [
+                {
+                    'id': campaign.id,
+                    'name': campaign.name,
+                    'status': campaign.status,
+                    'message': campaign.message[:50] + '...' if len(campaign.message) > 50 else campaign.message,
+                    'created_at': campaign.created_at.strftime('%Y-%m-%d %H:%M')
+                }
+                for campaign in recent_campaigns
+            ]
+        }
+        
+        return jsonify(analytics_data)
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get analytics: {str(e)}'}), 500
 
 # Settings API
 @app.route('/api/settings', methods=['GET'])
