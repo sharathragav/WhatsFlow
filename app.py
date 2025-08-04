@@ -642,6 +642,89 @@ def duplicate_campaign(campaign_id):
         db.session.rollback()
         return jsonify({'error': f'Failed to duplicate campaign: {str(e)}'}), 500
 
+# QR Code API
+@app.route('/api/whatsapp/qr', methods=['GET'])
+def get_qr_code():
+    """Get QR code from WhatsApp Web for scanning"""
+    try:
+        from whatsapp_sender.sender import WhatsAppBulkSender
+        import base64
+        import io
+        
+        # Try to initialize WebDriver to get QR code
+        sender = WhatsAppBulkSender()
+        
+        try:
+            sender.initialize_driver()
+            
+            # Navigate to WhatsApp Web
+            sender.driver.get("https://web.whatsapp.com")
+            
+            # Wait for QR code to load
+            import time
+            time.sleep(5)
+            
+            # Look for QR code element
+            try:
+                from selenium.webdriver.common.by import By
+                from selenium.webdriver.support.ui import WebDriverWait
+                from selenium.webdriver.support import expected_conditions as EC
+                
+                # Wait for QR code canvas to be present
+                qr_element = WebDriverWait(sender.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "canvas[aria-label='Scan me!'], canvas"))
+                )
+                
+                # Take screenshot of QR code area
+                qr_screenshot = qr_element.screenshot_as_png
+                
+                # Convert to base64 for frontend display
+                qr_base64 = base64.b64encode(qr_screenshot).decode('utf-8')
+                
+                sender.driver.quit()
+                
+                return jsonify({
+                    'success': True,
+                    'qr_code': f'data:image/png;base64,{qr_base64}',
+                    'message': 'QR code retrieved successfully',
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                # If QR code not found, check if user is already logged in
+                page_source = sender.driver.page_source.lower()
+                sender.driver.quit()
+                
+                if 'chats' in page_source or 'chat' in page_source:
+                    return jsonify({
+                        'success': False,
+                        'already_connected': True,
+                        'message': 'WhatsApp Web is already connected - no QR code needed',
+                        'timestamp': datetime.now().isoformat()
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'message': f'Could not retrieve QR code: {str(e)}',
+                        'timestamp': datetime.now().isoformat()
+                    })
+        
+        except Exception as e:
+            if hasattr(sender, 'driver') and sender.driver:
+                sender.driver.quit()
+            return jsonify({
+                'success': False,
+                'message': f'WebDriver error: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Failed to initialize QR code retrieval: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        })
+
 # WhatsApp Connection API
 @app.route('/api/whatsapp/status', methods=['GET'])
 def get_whatsapp_status():

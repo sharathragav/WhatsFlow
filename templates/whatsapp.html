@@ -74,13 +74,19 @@
                     </h5>
                 </div>
                 <div class="card-body text-center">
-                    <div class="qr-placeholder mb-3">
+                    <div id="qrCodeArea" class="qr-placeholder mb-3">
                         <i class="fab fa-whatsapp fa-4x text-muted"></i>
-                        <p class="text-muted mt-2">QR Code will appear here when scanning is needed</p>
+                        <p id="qrCodeText" class="text-muted mt-2">QR Code will appear here when scanning is needed</p>
                     </div>
-                    <button class="btn btn-outline-primary" onclick="openWhatsAppWeb()">
-                        <i class="fas fa-external-link-alt me-1"></i>Open WhatsApp Web
-                    </button>
+                    <img id="qrCodeImage" style="display: none; max-width: 100%; height: auto; border-radius: 8px;" alt="WhatsApp QR Code">
+                    <div class="mt-3">
+                        <button class="btn btn-primary me-2" onclick="getQRCode()">
+                            <i class="fas fa-qrcode me-1"></i>Get QR Code
+                        </button>
+                        <button class="btn btn-outline-primary" onclick="openWhatsAppWeb()">
+                            <i class="fas fa-external-link-alt me-1"></i>Open WhatsApp Web
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -219,6 +225,68 @@ function refreshStatus() {
 function startConnectionMonitoring() {
     // Check connection status every 30 seconds
     connectionCheckInterval = setInterval(checkConnectionStatus, 30000);
+}
+
+function getQRCode() {
+    const qrCodeArea = document.getElementById('qrCodeArea');
+    const qrCodeImage = document.getElementById('qrCodeImage');
+    const qrCodeText = document.getElementById('qrCodeText');
+    const getQRButton = document.querySelector('button[onclick="getQRCode()"]');
+    
+    // Show loading state
+    getQRButton.disabled = true;
+    getQRButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Getting QR Code...';
+    qrCodeText.textContent = 'Retrieving QR code from WhatsApp Web...';
+    
+    fetch('/api/whatsapp/qr')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.qr_code) {
+                // Hide placeholder and show QR code image
+                qrCodeArea.style.display = 'none';
+                qrCodeImage.src = data.qr_code;
+                qrCodeImage.style.display = 'block';
+                
+                // Update button to allow refresh
+                getQRButton.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh QR Code';
+                
+                // Show success message
+                qrCodeText.textContent = 'Scan this QR code with your phone to connect WhatsApp Web';
+                qrCodeText.style.display = 'block';
+                
+            } else if (data.already_connected) {
+                // WhatsApp is already connected
+                qrCodeArea.innerHTML = `
+                    <i class="fas fa-check-circle fa-4x text-success"></i>
+                    <p class="text-success mt-2 fw-bold">WhatsApp Web Already Connected!</p>
+                    <small class="text-muted">No QR code needed - you're ready to send messages</small>
+                `;
+                getQRButton.innerHTML = '<i class="fas fa-check me-1"></i>Already Connected';
+                
+            } else {
+                // Error occurred
+                qrCodeText.textContent = data.message || 'Failed to retrieve QR code';
+                qrCodeArea.innerHTML = `
+                    <i class="fas fa-exclamation-triangle fa-4x text-warning"></i>
+                    <p class="text-warning mt-2">${data.message}</p>
+                    <small class="text-muted">Try refreshing or check your connection</small>
+                `;
+                getQRButton.innerHTML = '<i class="fas fa-retry me-1"></i>Try Again';
+            }
+        })
+        .catch(error => {
+            console.error('Error getting QR code:', error);
+            qrCodeText.textContent = 'Failed to retrieve QR code - check console for details';
+            qrCodeArea.innerHTML = `
+                <i class="fas fa-times-circle fa-4x text-danger"></i>
+                <p class="text-danger mt-2">Connection Error</p>
+                <small class="text-muted">Please try again or check your internet connection</small>
+            `;
+            getQRButton.innerHTML = '<i class="fas fa-retry me-1"></i>Try Again';
+        })
+        .finally(() => {
+            getQRButton.disabled = false;
+        });
 }
 
 function openWhatsAppWeb() {

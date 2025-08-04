@@ -10,9 +10,13 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes (August 2025)
 
+- **QR Code Integration**: Added real WhatsApp Web QR code display in dashboard with live capture via Selenium WebDriver
+- **Dynamic Connection Checker**: Real API calls to test WhatsApp Web connection status with detailed error reporting
+- **Campaign Management**: Fully functional View, Edit, Delete, and Duplicate buttons with database integration
+- **Backup & Restore**: Complete database backup to JSON files and restore functionality with data validation
+- **Settings Explanations**: Detailed explanations for Chrome profiles, log levels, and configuration options
 - **Technical Issues Resolved**: Fixed all LSP diagnostics including WebDriver null checks and JavaScript duplicate declarations
-- **Documentation Created**: Comprehensive DOCUMENTATION.md and README.md files created with detailed feature explanations
-- **Application Status**: Fully functional with all 7 dashboards operational
+- **Application Status**: Fully functional with all 7 dashboards operational including live QR code display
 - **Dependencies**: All required packages installed and verified working
 - **Code Quality**: All type checking errors resolved, application running without errors
 
