@@ -635,149 +635,129 @@ def duplicate_campaign(campaign_id):
 # QR Code API
 @app.route('/api/whatsapp/qr', methods=['GET'])
 def get_qr_code():
-    """Get QR code from WhatsApp Web for scanning"""
+    """Get QR code from WhatsApp Web using proper WebDriver initialization"""
     try:
         from whatsapp_sender.sender import WhatsAppBulkSender
-        import base64
-        import io
         
-        # Try to initialize WebDriver to get QR code
         sender = WhatsAppBulkSender()
         
+        # Initialize WebDriver
         try:
             sender.initialize_driver()
+            print("Chrome WebDriver initialized successfully for QR capture")
+        except Exception as e:
+            print(f"Failed to initialize WebDriver: {str(e)}")
+            return jsonify({
+                'success': False,
+                'message': f'WebDriver initialization failed: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        # Capture QR code using the new method
+        try:
+            qr_result = sender.capture_qr_code()
             
-            # Navigate to WhatsApp Web
-            sender.driver.get("https://web.whatsapp.com")
-            
-            # Wait for QR code to load
-            import time
-            time.sleep(5)
-            
-            # Look for QR code element
-            try:
-                from selenium.webdriver.common.by import By
-                from selenium.webdriver.support.ui import WebDriverWait
-                from selenium.webdriver.support import expected_conditions as EC
-                
-                # Wait for QR code canvas to be present
-                qr_element = WebDriverWait(sender.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "canvas[aria-label='Scan me!'], canvas"))
-                )
-                
-                # Take screenshot of QR code area
-                qr_screenshot = qr_element.screenshot_as_png
-                
-                # Convert to base64 for frontend display
-                qr_base64 = base64.b64encode(qr_screenshot).decode('utf-8')
-                
-                sender.driver.quit()
-                
+            if qr_result == "already_connected":
+                print("WhatsApp Web already connected")
                 return jsonify({
                     'success': True,
-                    'qr_code': f'data:image/png;base64,{qr_base64}',
-                    'message': 'QR code retrieved successfully',
+                    'already_connected': True,
+                    'message': 'WhatsApp Web is already connected - no QR code needed',
+                    'timestamp': datetime.now().isoformat()
+                })
+            elif qr_result:
+                print("QR code captured successfully")
+                return jsonify({
+                    'success': True,
+                    'qr_code': qr_result,
+                    'message': 'QR code captured successfully',
+                    'timestamp': datetime.now().isoformat()
+                })
+            else:
+                print("QR code capture failed")
+                return jsonify({
+                    'success': False,
+                    'message': 'Could not capture QR code - please try again',
                     'timestamp': datetime.now().isoformat()
                 })
                 
-            except Exception as e:
-                # If QR code not found, check if user is already logged in
-                page_source = sender.driver.page_source.lower()
-                sender.driver.quit()
-                
-                if 'chats' in page_source or 'chat' in page_source:
-                    return jsonify({
-                        'success': False,
-                        'already_connected': True,
-                        'message': 'WhatsApp Web is already connected - no QR code needed',
-                        'timestamp': datetime.now().isoformat()
-                    })
-                else:
-                    return jsonify({
-                        'success': False,
-                        'message': f'Could not retrieve QR code: {str(e)}',
-                        'timestamp': datetime.now().isoformat()
-                    })
-        
         except Exception as e:
-            if hasattr(sender, 'driver') and sender.driver:
-                sender.driver.quit()
+            print(f"QR code capture error: {str(e)}")
             return jsonify({
                 'success': False,
-                'message': f'WebDriver error: {str(e)}',
+                'message': f'QR capture failed: {str(e)}',
                 'timestamp': datetime.now().isoformat()
             })
+        finally:
+            if hasattr(sender, 'driver') and sender.driver:
+                sender.driver.quit()
         
     except Exception as e:
         return jsonify({
             'success': False,
-            'message': f'Failed to initialize QR code retrieval: {str(e)}',
+            'message': f'Failed to initialize QR code capture: {str(e)}',
             'timestamp': datetime.now().isoformat()
         })
 
 # WhatsApp Connection API
 @app.route('/api/whatsapp/status', methods=['GET'])
 def get_whatsapp_status():
-    """Check WhatsApp connection status"""
+    """Check WhatsApp connection status using proper WebDriver initialization"""
     try:
         from whatsapp_sender.sender import WhatsAppBulkSender
         
-        # Try to initialize WebDriver to check connection
         sender = WhatsAppBulkSender()
         
+        # Initialize WebDriver
         try:
             sender.initialize_driver()
-            
-            # Check if WhatsApp Web is accessible
-            sender.driver.get("https://web.whatsapp.com")
-            
-            # Wait a bit and check for login elements
-            import time
-            time.sleep(3)
-            
-            # Check if user is logged in by looking for common elements
-            page_source = sender.driver.page_source.lower()
-            
-            if 'qr code' in page_source or 'scan' in page_source:
-                status = {
-                    'connected': False,
-                    'status': 'qr_required',
-                    'message': 'QR code scan required',
-                    'timestamp': datetime.now().isoformat()
-                }
-            elif 'chats' in page_source or 'chat' in page_source:
-                status = {
-                    'connected': True,
-                    'status': 'connected',
-                    'message': 'WhatsApp Web connected successfully',
-                    'timestamp': datetime.now().isoformat()
-                }
-            else:
-                status = {
-                    'connected': False,
-                    'status': 'unknown',
-                    'message': 'Connection status unclear',
-                    'timestamp': datetime.now().isoformat()
-                }
-            
-            sender.driver.quit()
-            return jsonify(status)
-            
+            print("Chrome WebDriver initialized successfully")
         except Exception as e:
-            if hasattr(sender, 'driver') and sender.driver:
-                sender.driver.quit()
+            print(f"Failed to initialize WebDriver: {str(e)}")
             return jsonify({
                 'connected': False,
                 'status': 'error',
-                'message': f'Connection test failed: {str(e)}',
+                'message': f'WebDriver initialization failed: {str(e)}',
                 'timestamp': datetime.now().isoformat()
             })
+        
+        # Check WhatsApp login status
+        try:
+            if sender.login_to_whatsapp():
+                print("Successfully logged into WhatsApp Web")
+                status = {
+                    'connected': True,
+                    'status': 'connected',
+                    'message': 'WhatsApp Web is connected and ready',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                print("QR code scan required")
+                status = {
+                    'connected': False,
+                    'status': 'qr_required',
+                    'message': 'QR code scan required to connect',
+                    'timestamp': datetime.now().isoformat()
+                }
+        except Exception as e:
+            print(f"WhatsApp login check error: {str(e)}")
+            status = {
+                'connected': False,
+                'status': 'error',
+                'message': f'Login check failed: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            }
+        finally:
+            if hasattr(sender, 'driver') and sender.driver:
+                sender.driver.quit()
+        
+        return jsonify(status)
         
     except Exception as e:
         return jsonify({
             'connected': False,
             'status': 'error',
-            'message': f'WebDriver initialization failed: {str(e)}',
+            'message': f'Connection check failed: {str(e)}',
             'timestamp': datetime.now().isoformat()
         })
 

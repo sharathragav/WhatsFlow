@@ -51,6 +51,75 @@ class WhatsAppBulkSender:
         print("Chrome WebDriver initialized with persistent session support.")
 
     def login_to_whatsapp(self):
+        """Check WhatsApp login status"""
+        if not self.driver:
+            print("WebDriver not initialized")
+            return False
+            
+        print("Checking existing WhatsApp session...")
+        self.driver.get('https://web.whatsapp.com')
+        
+        # Check if already logged in
+        try:
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, '//div[@id="pane-side"]'))
+            )
+            print("Using existing WhatsApp session")
+            return True
+        except TimeoutException:
+            print("Session not found - QR code scan required")
+            return False
+    
+    def capture_qr_code(self):
+        """Capture QR code from WhatsApp Web for login"""
+        if not self.driver:
+            print("WebDriver not initialized")
+            return None
+            
+        try:
+            print("Navigating to WhatsApp Web for QR code...")
+            self.driver.get('https://web.whatsapp.com')
+            
+            # Wait for QR code to appear
+            try:
+                qr_element = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="qr-code"]'))
+                )
+                print("QR code found, capturing screenshot...")
+                
+                # Take screenshot of QR code area
+                import base64
+                import io
+                from PIL import Image
+                
+                # Get QR code screenshot
+                qr_screenshot = qr_element.screenshot_as_png
+                
+                # Convert to base64 for frontend display
+                qr_base64 = base64.b64encode(qr_screenshot).decode('utf-8')
+                qr_data_url = f"data:image/png;base64,{qr_base64}"
+                
+                print("QR code captured successfully")
+                return qr_data_url
+                
+            except TimeoutException:
+                # Check if already logged in
+                try:
+                    WebDriverWait(self.driver, 3).until(
+                        EC.presence_of_element_located((By.XPATH, '//div[@id="pane-side"]'))
+                    )
+                    print("Already logged in - no QR code needed")
+                    return "already_connected"
+                except TimeoutException:
+                    print("QR code not found and not logged in")
+                    return None
+                    
+        except Exception as e:
+            print(f"Error capturing QR code: {str(e)}")
+            return None
+    
+    def login_to_whatsapp_with_wait(self):
+        """Original login method with QR scan wait"""
         if not self.driver:
             print("WebDriver not initialized")
             return False
