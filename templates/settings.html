@@ -83,7 +83,12 @@
                         
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
-                            <strong>Important:</strong> Make sure to login to WhatsApp Web in the specified Chrome profile before starting campaigns.
+                            <strong>How Chrome Profiles Work:</strong><br>
+                            • Chrome stores WhatsApp Web login in your profile data<br>
+                            • Once you login to WhatsApp Web, it stays logged in until you logout<br>
+                            • The system uses your existing Chrome profile - no manual path setup needed<br>
+                            • If path is empty, it auto-detects your default Chrome profile<br>
+                            • Login persists between application restarts
                         </div>
                         
                         <button type="button" class="btn btn-primary" onclick="saveChromeSettings()">
@@ -122,7 +127,13 @@
                                 <option value="WARNING" {% if config.log_level == 'WARNING' %}selected{% endif %}>WARNING</option>
                                 <option value="ERROR" {% if config.log_level == 'ERROR' %}selected{% endif %}>ERROR</option>
                             </select>
-                            <div class="form-text">Logging verbosity level</div>
+                            <div class="form-text">
+                                <strong>Log Level Explanation:</strong><br>
+                                • <strong>DEBUG:</strong> Detailed information for troubleshooting<br>
+                                • <strong>INFO:</strong> General information about app operations<br>
+                                • <strong>WARNING:</strong> Warning messages about potential issues<br>
+                                • <strong>ERROR:</strong> Only error messages and critical issues
+                            </div>
                         </div>
                         
                         <button type="button" class="btn btn-primary" onclick="saveApiSettings()">
@@ -177,32 +188,45 @@
         </div>
     </div>
 
-    <!-- Export/Import Settings -->
+    <!-- Database Backup & Restore -->
     <div class="dashboard-card">
         <div class="card-header">
             <h5 class="card-title mb-0">
-                <i class="fas fa-file-export me-2"></i>Backup & Restore
+                <i class="fas fa-database me-2"></i>Database Backup & Restore
             </h5>
         </div>
         <div class="card-body">
             <div class="row">
                 <div class="col-md-6">
-                    <h6>Export Settings</h6>
-                    <p class="text-muted">Download your current configuration as a backup file.</p>
-                    <button type="button" class="btn btn-outline-primary" onclick="exportSettings()">
-                        <i class="fas fa-download me-1"></i>Export Configuration
+                    <h6>Create Database Backup</h6>
+                    <p class="text-muted">Download a complete backup of all customers, campaigns, and settings</p>
+                    <button type="button" class="btn btn-success" onclick="createBackup()">
+                        <i class="fas fa-download me-1"></i>Create Backup
                     </button>
                 </div>
                 <div class="col-md-6">
-                    <h6>Import Settings</h6>
-                    <p class="text-muted">Restore configuration from a previously exported file.</p>
-                    <div class="input-group">
-                        <input type="file" class="form-control" id="importFile" accept=".json">
-                        <button class="btn btn-outline-success" type="button" onclick="importSettings()">
-                            <i class="fas fa-upload me-1"></i>Import
+                    <h6>Restore from Backup</h6>
+                    <p class="text-muted">Restore data from a previously created backup file</p>
+                    <div class="input-group mb-2">
+                        <input type="file" class="form-control" id="backupFile" accept=".json">
+                        <button class="btn btn-warning" type="button" onclick="restoreBackup()">
+                            <i class="fas fa-upload me-1"></i>Restore
                         </button>
                     </div>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> Restoring will replace all current data!
+                    </div>
                 </div>
+            </div>
+            
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Backup & Restore Explanation:</strong><br>
+                • <strong>Backup:</strong> Creates a JSON file with all your data for safekeeping<br>
+                • <strong>Restore:</strong> Replaces current database with backup file data<br>
+                • <strong>Use Cases:</strong> Moving data between systems, creating copies, disaster recovery<br>
+                • <strong>Includes:</strong> All customers, campaigns, settings, and configuration
             </div>
         </div>
     </div>
@@ -300,6 +324,78 @@ function resetSettings() {
         showToast('Settings reset to defaults!', 'success');
         updateLastConfigUpdate();
     }
+}
+
+function createBackup() {
+    const button = document.querySelector('button[onclick="createBackup()"]');
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Creating Backup...';
+    
+    fetch('/api/backup')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                // Create download link
+                const downloadLink = document.createElement('a');
+                downloadLink.href = '/uploads/' + data.filename;
+                downloadLink.download = data.filename;
+                downloadLink.click();
+                
+                alert(`Backup created successfully!\nCustomers: ${data.customers_count}\nCampaigns: ${data.campaigns_count}`);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to create backup');
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-download me-1"></i>Create Backup';
+        });
+}
+
+function restoreBackup() {
+    const fileInput = document.getElementById('backupFile');
+    if (fileInput.files.length === 0) {
+        alert('Please select a backup file');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to restore from backup? This will replace ALL current data and cannot be undone!')) {
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    
+    const button = document.querySelector('button[onclick="restoreBackup()"]');
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Restoring...';
+    
+    fetch('/api/restore', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            alert(`Backup restored successfully!\nCustomers restored: ${data.customers_restored}\nCampaigns restored: ${data.campaigns_restored}`);
+            location.reload(); // Refresh page to show updated data
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to restore backup');
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.innerHTML = '<i class="fas fa-upload me-1"></i>Restore';
+        fileInput.value = ''; // Clear file input
+    });
 }
 
 function exportSettings() {

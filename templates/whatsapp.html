@@ -126,33 +126,81 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function checkConnectionStatus() {
-    // In a real implementation, this would check the actual WhatsApp connection status
-    // For demo purposes, we'll simulate the status
-    
     const statusElement = document.getElementById('connectionStatus');
     const statusText = document.getElementById('statusText');
     const statusDescription = document.getElementById('statusDescription');
     const loadingSpinner = document.getElementById('loadingSpinner');
     
-    // Simulate checking status
-    setTimeout(() => {
-        const isConnected = Math.random() > 0.7; // 30% chance of being connected
-        
-        if (isConnected) {
-            statusElement.className = 'status-indicator status-connected';
-            statusElement.innerHTML = '<i class="fas fa-check-circle"></i>';
-            statusText.textContent = 'Connected';
-            statusDescription.textContent = 'WhatsApp Web is connected and ready to send messages';
-        } else {
+    // Show loading
+    loadingSpinner.style.display = 'inline-block';
+    statusText.textContent = 'Checking...';
+    statusDescription.textContent = 'Testing WhatsApp connection...';
+    
+    // Make actual API call to check WhatsApp status
+    fetch('/api/whatsapp/status')
+        .then(response => response.json())
+        .then(data => {
+            // Hide loading
+            loadingSpinner.style.display = 'none';
+            
+            if (data.connected) {
+                statusElement.className = 'status-indicator status-connected';
+                statusElement.innerHTML = '<i class="fas fa-check-circle"></i>';
+                statusText.textContent = 'Connected';
+                statusDescription.textContent = data.message;
+            } else {
+                statusElement.className = 'status-indicator status-disconnected';
+                statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
+                statusText.textContent = 'Disconnected';
+                statusDescription.textContent = data.message;
+                
+                if (data.status === 'qr_required') {
+                    statusDescription.innerHTML += '<br><small>Please scan QR code in WhatsApp Web to connect</small>';
+                }
+            }
+            
+            // Add to connection history
+            addConnectionHistory(data);
+        })
+        .catch(error => {
+            console.error('Error checking connection:', error);
+            loadingSpinner.style.display = 'none';
+            
             statusElement.className = 'status-indicator status-disconnected';
             statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
-            statusText.textContent = 'Disconnected';
-            statusDescription.textContent = 'Please scan QR code in WhatsApp Web to connect';
-        }
-        
-        loadingSpinner.style.display = 'none';
-        addConnectionHistoryEntry(isConnected ? 'Connected' : 'Disconnected');
-    }, 2000);
+            statusText.textContent = 'Error';
+            statusDescription.textContent = 'Failed to check connection status';
+        });
+}
+
+function addConnectionHistory(statusData) {
+    const historyTable = document.getElementById('connectionHistory');
+    const timestamp = new Date(statusData.timestamp).toLocaleString();
+    
+    // Check if this is the first entry (remove "no history" message)
+    if (historyTable.children.length === 1 && historyTable.children[0].children.length === 1) {
+        historyTable.innerHTML = '';
+    }
+    
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td>${timestamp}</td>
+        <td>
+            <span class="status-badge ${statusData.connected ? 'status-connected' : 'status-disconnected'}">
+                ${statusData.connected ? 'Connected' : 'Disconnected'}
+            </span>
+        </td>
+        <td>-</td>
+        <td>${statusData.message}</td>
+    `;
+    
+    // Add to top of table
+    historyTable.insertBefore(row, historyTable.firstChild);
+    
+    // Keep only last 10 entries
+    while (historyTable.children.length > 10) {
+        historyTable.removeChild(historyTable.lastChild);
+    }
 }
 
 function refreshStatus() {

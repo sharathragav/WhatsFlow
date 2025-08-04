@@ -573,6 +573,259 @@ def upload_customers():
         db.session.rollback()
         return jsonify({'error': f'Failed to process file: {str(e)}'}), 500
 
+# Campaign Management API Endpoints
+@app.route('/api/campaigns', methods=['POST'])
+def create_campaign():
+    """Create a new campaign"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name') or not data.get('message'):
+            return jsonify({'error': 'Campaign name and message are required'}), 400
+        
+        # Create new campaign
+        campaign = Campaign(
+            name=data['name'],
+            description=data.get('description', ''),
+            message=data['message'],
+            status='draft'
+        )
+        
+        db.session.add(campaign)
+        db.session.commit()
+        
+        return jsonify({'message': 'Campaign created successfully', 'campaign': campaign.to_dict()}), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to create campaign: {str(e)}'}), 500
+
+@app.route('/api/campaigns/<int:campaign_id>', methods=['GET'])
+def get_campaign(campaign_id):
+    """Get a specific campaign"""
+    campaign = Campaign.query.get_or_404(campaign_id)
+    return jsonify(campaign.to_dict())
+
+@app.route('/api/campaigns/<int:campaign_id>', methods=['DELETE'])
+def delete_campaign(campaign_id):
+    """Delete a campaign"""
+    try:
+        campaign = Campaign.query.get_or_404(campaign_id)
+        db.session.delete(campaign)
+        db.session.commit()
+        return jsonify({'message': 'Campaign deleted successfully'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete campaign: {str(e)}'}), 500
+
+@app.route('/api/campaigns/<int:campaign_id>/duplicate', methods=['POST'])
+def duplicate_campaign(campaign_id):
+    """Duplicate a campaign"""
+    try:
+        original = Campaign.query.get_or_404(campaign_id)
+        
+        duplicate = Campaign(
+            name=f"{original.name} (Copy)",
+            description=original.description,
+            message=original.message,
+            status='draft'
+        )
+        
+        db.session.add(duplicate)
+        db.session.commit()
+        
+        return jsonify({'message': 'Campaign duplicated successfully', 'campaign': duplicate.to_dict()}), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to duplicate campaign: {str(e)}'}), 500
+
+# WhatsApp Connection API
+@app.route('/api/whatsapp/status', methods=['GET'])
+def get_whatsapp_status():
+    """Check WhatsApp connection status"""
+    try:
+        from whatsapp_sender.sender import WhatsAppBulkSender
+        
+        # Try to initialize WebDriver to check connection
+        sender = WhatsAppBulkSender()
+        
+        try:
+            sender.initialize_driver()
+            
+            # Check if WhatsApp Web is accessible
+            sender.driver.get("https://web.whatsapp.com")
+            
+            # Wait a bit and check for login elements
+            import time
+            time.sleep(3)
+            
+            # Check if user is logged in by looking for common elements
+            page_source = sender.driver.page_source.lower()
+            
+            if 'qr code' in page_source or 'scan' in page_source:
+                status = {
+                    'connected': False,
+                    'status': 'qr_required',
+                    'message': 'QR code scan required',
+                    'timestamp': datetime.now().isoformat()
+                }
+            elif 'chats' in page_source or 'chat' in page_source:
+                status = {
+                    'connected': True,
+                    'status': 'connected',
+                    'message': 'WhatsApp Web connected successfully',
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                status = {
+                    'connected': False,
+                    'status': 'unknown',
+                    'message': 'Connection status unclear',
+                    'timestamp': datetime.now().isoformat()
+                }
+            
+            sender.driver.quit()
+            return jsonify(status)
+            
+        except Exception as e:
+            if hasattr(sender, 'driver') and sender.driver:
+                sender.driver.quit()
+            return jsonify({
+                'connected': False,
+                'status': 'error',
+                'message': f'Connection test failed: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            })
+        
+    except Exception as e:
+        return jsonify({
+            'connected': False,
+            'status': 'error',
+            'message': f'WebDriver initialization failed: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        })
+
+# Settings API
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """Get current settings"""
+    return jsonify(CONFIG)
+
+@app.route('/api/settings', methods=['POST'])
+def update_settings():
+    """Update settings"""
+    try:
+        data = request.get_json()
+        
+        # Update CONFIG values
+        for key, value in data.items():
+            if key in CONFIG:
+                CONFIG[key] = value
+        
+        return jsonify({'message': 'Settings updated successfully', 'config': CONFIG})
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to update settings: {str(e)}'}), 500
+
+# Backup and Restore API
+@app.route('/api/backup', methods=['GET'])
+def create_backup():
+    """Create database backup"""
+    try:
+        import json
+        from datetime import datetime
+        
+        # Get all data
+        customers = Customer.query.all()
+        campaigns = Campaign.query.all()
+        
+        backup_data = {
+            'timestamp': datetime.now().isoformat(),
+            'customers': [customer.to_dict() for customer in customers],
+            'campaigns': [campaign.to_dict() for campaign in campaigns],
+            'settings': CONFIG
+        }
+        
+        # Save backup file
+        backup_filename = f"whatsapp_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        backup_path = os.path.join(UPLOAD_FOLDER, backup_filename)
+        
+        with open(backup_path, 'w') as f:
+            json.dump(backup_data, f, indent=2)
+        
+        return jsonify({
+            'message': 'Backup created successfully',
+            'filename': backup_filename,
+            'path': backup_path,
+            'customers_count': len(customers),
+            'campaigns_count': len(campaigns)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to create backup: {str(e)}'}), 500
+
+@app.route('/api/restore', methods=['POST'])
+def restore_backup():
+    """Restore from backup file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No backup file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Save uploaded file
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+        
+        # Read backup data
+        with open(filepath, 'r') as f:
+            backup_data = json.load(f)
+        
+        # Clear existing data
+        Campaign.query.delete()
+        Customer.query.delete()
+        
+        # Restore customers
+        for customer_data in backup_data.get('customers', []):
+            customer = Customer(
+                name=customer_data['name'],
+                phone=customer_data['phone'],
+                email=customer_data.get('email', ''),
+                status=customer_data.get('status', 'Opted In')
+            )
+            db.session.add(customer)
+        
+        # Restore campaigns
+        for campaign_data in backup_data.get('campaigns', []):
+            campaign = Campaign(
+                name=campaign_data['name'],
+                description=campaign_data.get('description', ''),
+                message=campaign_data.get('message', ''),
+                status=campaign_data.get('status', 'draft')
+            )
+            db.session.add(campaign)
+        
+        db.session.commit()
+        
+        # Clean up uploaded file
+        os.remove(filepath)
+        
+        return jsonify({
+            'message': 'Backup restored successfully',
+            'customers_restored': len(backup_data.get('customers', [])),
+            'campaigns_restored': len(backup_data.get('campaigns', []))
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to restore backup: {str(e)}'}), 500
+
 if __name__ == '__main__':
     print("Starting WhatsApp Bulk Sender Multi-Dashboard Application...")
     print("Access the application at: http://localhost:5000")
