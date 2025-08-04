@@ -3,8 +3,9 @@ import json
 import time
 import threading
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 import pandas as pd
 import logging
@@ -19,6 +20,11 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "whatsapp-bulk-sender-secret-key")
 CORS(app)
+
+# Database configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///whatsapp_bulk.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -42,19 +48,71 @@ current_progress = {
     'end_time': None
 }
 
-# Mock data for demonstration
-mock_customers = [
-    {'id': 1, 'name': 'Sample', 'phone': '9840851742', 'email': '', 'status': 'Opted In'},
-    {'id': 2, 'name': 'Test Customer UI', 'phone': '+15551234556', 'email': 'testui@example.com', 'status': 'Opted In'},
-    {'id': 3, 'name': 'Integration Test Customer', 'phone': '+15559876554', 'email': 'integration@test.com', 'status': 'Opted In'},
-    {'id': 4, 'name': 'Sample', 'phone': '+919840851742', 'email': '', 'status': 'Opted In'}
-]
+# Database Models
+class Customer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(20), nullable=False, unique=True)
+    email = db.Column(db.String(120), nullable=True)
+    status = db.Column(db.String(20), default='Opted In')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'phone': self.phone,
+            'email': self.email or '',
+            'status': self.status,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        }
 
-mock_campaigns = [
-    {'id': 1, 'name': 'testing', 'description': 't', 'status': 'failed', 'created_at': '2024-01-15'},
-    {'id': 2, 'name': 'Test 2', 'description': 'Sample Test', 'status': 'failed', 'created_at': '2024-01-16'},
-    {'id': 3, 'name': 'Integration Test Campaign', 'description': 'Testing integration', 'status': 'completed', 'created_at': '2024-01-17'}
-]
+class Campaign(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    message = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), default='draft')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_count = db.Column(db.Integer, default=0)
+    failed_count = db.Column(db.Integer, default=0)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'message': self.message or '',
+            'status': self.status,
+            'created_at': self.created_at.strftime('%Y-%m-%d'),
+            'sent_count': self.sent_count,
+            'failed_count': self.failed_count
+        }
+
+# Initialize database
+with app.app_context():
+    db.create_all()
+    
+    # Add sample data if database is empty
+    if Customer.query.count() == 0:
+        sample_customers = [
+            Customer(name='Sample', phone='9840851742', email='', status='Opted In'),
+            Customer(name='Test Customer UI', phone='+15551234556', email='testui@example.com', status='Opted In'),
+            Customer(name='Integration Test Customer', phone='+15559876554', email='integration@test.com', status='Opted In'),
+            Customer(name='Sample User', phone='+919840851742', email='', status='Opted In')
+        ]
+        for customer in sample_customers:
+            db.session.add(customer)
+        
+        sample_campaigns = [
+            Campaign(name='testing', description='t', status='failed'),
+            Campaign(name='Test 2', description='Sample Test', status='failed'),
+            Campaign(name='Integration Test Campaign', description='Testing integration', status='completed')
+        ]
+        for campaign in sample_campaigns:
+            db.session.add(campaign)
+        
+        db.session.commit()
 
 def allowed_file(filename, file_type):
     """Check if file extension is allowed"""
@@ -212,23 +270,29 @@ def send_messages_async(recipients_file, attachment_file=None):
 @app.route('/')
 def dashboard():
     """Main dashboard with statistics"""
+    customers_count = Customer.query.count()
+    campaigns_list = Campaign.query.all()
     stats = {
-        'total_customers': len(mock_customers),
-        'total_campaigns': len(mock_campaigns),
-        'active_campaigns': len([c for c in mock_campaigns if c['status'] == 'active']),
-        'completed_campaigns': len([c for c in mock_campaigns if c['status'] == 'completed'])
+        'total_customers': customers_count,
+        'total_campaigns': len(campaigns_list),
+        'active_campaigns': len([c for c in campaigns_list if c.status == 'active']),
+        'completed_campaigns': len([c for c in campaigns_list if c.status == 'completed'])
     }
-    return render_template('dashboard.html', stats=stats, recent_campaigns=mock_campaigns[:5])
+    recent_campaigns = Campaign.query.order_by(Campaign.created_at.desc()).limit(5).all()
+    return render_template('dashboard.html', stats=stats, recent_campaigns=recent_campaigns)
 
 @app.route('/customers')
 def customers():
     """Customer management dashboard"""
-    return render_template('customers.html', customers=mock_customers)
+    customers_list = Customer.query.all()
+    return render_template('customers.html', customers=customers_list)
 
 @app.route('/campaigns')
 def campaigns():
     """Campaign management dashboard"""
-    return render_template('campaigns.html', campaigns=mock_campaigns, customers=mock_customers)
+    campaigns_list = Campaign.query.all()
+    customers_list = Customer.query.all()
+    return render_template('campaigns.html', campaigns=campaigns_list, customers=customers_list)
 
 @app.route('/whatsapp')
 def whatsapp_connection():
@@ -339,12 +403,14 @@ def get_status():
 @app.route('/api/customers', methods=['GET'])
 def get_customers():
     """Get all customers"""
-    return jsonify(mock_customers)
+    customers_list = Customer.query.all()
+    return jsonify([customer.to_dict() for customer in customers_list])
 
 @app.route('/api/campaigns', methods=['GET'])
 def get_campaigns():
     """Get all campaigns"""
-    return jsonify(mock_campaigns)
+    campaigns_list = Campaign.query.all()
+    return jsonify([campaign.to_dict() for campaign in campaigns_list])
 
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
@@ -357,6 +423,155 @@ def get_analytics():
         'message_volume': [1200, 1800, 2200, 2800, 3200, 3800]
     }
     return jsonify(analytics_data)
+
+# Customer Management API Endpoints
+@app.route('/api/customers', methods=['POST'])
+def add_customer():
+    """Add a new customer"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name') or not data.get('phone'):
+            return jsonify({'error': 'Name and phone are required'}), 400
+        
+        # Check if phone already exists
+        existing_customer = Customer.query.filter_by(phone=data['phone']).first()
+        if existing_customer:
+            return jsonify({'error': 'Customer with this phone number already exists'}), 400
+        
+        # Create new customer
+        customer = Customer(
+            name=data['name'],
+            phone=data['phone'],
+            email=data.get('email', ''),
+            status=data.get('status', 'Opted In')
+        )
+        
+        db.session.add(customer)
+        db.session.commit()
+        
+        return jsonify({'message': 'Customer added successfully', 'customer': customer.to_dict()}), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to add customer: {str(e)}'}), 500
+
+@app.route('/api/customers/<int:customer_id>', methods=['GET'])
+def get_customer(customer_id):
+    """Get a specific customer"""
+    customer = Customer.query.get_or_404(customer_id)
+    return jsonify(customer.to_dict())
+
+@app.route('/api/customers/<int:customer_id>', methods=['PUT'])
+def update_customer(customer_id):
+    """Update a customer"""
+    try:
+        customer = Customer.query.get_or_404(customer_id)
+        data = request.get_json()
+        
+        # Update fields
+        if 'name' in data:
+            customer.name = data['name']
+        if 'phone' in data:
+            # Check if new phone already exists for another customer
+            existing = Customer.query.filter(Customer.phone == data['phone'], Customer.id != customer_id).first()
+            if existing:
+                return jsonify({'error': 'Phone number already exists'}), 400
+            customer.phone = data['phone']
+        if 'email' in data:
+            customer.email = data['email']
+        if 'status' in data:
+            customer.status = data['status']
+        
+        db.session.commit()
+        return jsonify({'message': 'Customer updated successfully', 'customer': customer.to_dict()})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update customer: {str(e)}'}), 500
+
+@app.route('/api/customers/<int:customer_id>', methods=['DELETE'])
+def delete_customer(customer_id):
+    """Delete a customer"""
+    try:
+        customer = Customer.query.get_or_404(customer_id)
+        db.session.delete(customer)
+        db.session.commit()
+        return jsonify({'message': 'Customer deleted successfully'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete customer: {str(e)}'}), 500
+
+@app.route('/api/customers/upload', methods=['POST'])
+def upload_customers():
+    """Upload customers from Excel file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not allowed_file(file.filename, 'recipients'):
+            return jsonify({'error': 'Invalid file format. Please upload Excel files only.'}), 400
+        
+        # Save file
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+        
+        # Read Excel file
+        df = pd.read_excel(filepath)
+        
+        # Validate columns
+        required_columns = ['Name', 'Phone']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            return jsonify({'error': f'Missing required columns: {", ".join(missing_columns)}'}), 400
+        
+        added_customers = []
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                name = str(row['Name']).strip()
+                phone = str(row['Phone']).strip()
+                email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
+                
+                if not name or not phone:
+                    errors.append(f'Row {index + 2}: Name and Phone are required')
+                    continue
+                
+                # Check if customer already exists
+                existing = Customer.query.filter_by(phone=phone).first()
+                if existing:
+                    errors.append(f'Row {index + 2}: Customer with phone {phone} already exists')
+                    continue
+                
+                customer = Customer(name=name, phone=phone, email=email)
+                db.session.add(customer)
+                added_customers.append(customer.to_dict())
+                
+            except Exception as e:
+                errors.append(f'Row {index + 2}: {str(e)}')
+        
+        db.session.commit()
+        
+        # Clean up uploaded file
+        os.remove(filepath)
+        
+        return jsonify({
+            'message': f'Successfully added {len(added_customers)} customers',
+            'added_customers': added_customers,
+            'errors': errors
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to process file: {str(e)}'}), 500
 
 if __name__ == '__main__':
     print("Starting WhatsApp Bulk Sender Multi-Dashboard Application...")
