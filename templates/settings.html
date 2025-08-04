@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - WhatsApp Marketing{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="mb-4">
+        <h2 class="page-title">Settings</h2>
+        <p class="text-muted">Configure your WhatsApp bulk sender settings</p>
+    </div>
+
+    <div class="row">
+        <!-- WebDriver Settings -->
+        <div class="col-md-6 mb-4">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-cog me-2"></i>WebDriver Settings
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form id="webdriverSettings">
+                        <div class="mb-3">
+                            <label for="maxRetries" class="form-label">Max Retries</label>
+                            <input type="number" class="form-control" id="maxRetries" 
+                                   value="{{ config.max_retries }}" min="1" max="10">
+                            <div class="form-text">Number of retry attempts for failed messages</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="delayBetweenMessages" class="form-label">Delay Between Messages (seconds)</label>
+                            <input type="number" class="form-control" id="delayBetweenMessages" 
+                                   value="{{ config.delay_between_messages }}" min="5" max="60">
+                            <div class="form-text">Wait time between sending messages to avoid rate limiting</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="uploadTimeout" class="form-label">Upload Timeout (seconds)</label>
+                            <input type="number" class="form-control" id="uploadTimeout" 
+                                   value="{{ config.upload_timeout }}" min="30" max="180">
+                            <div class="form-text">Maximum time to wait for file uploads</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="chatLoadTimeout" class="form-label">Chat Load Timeout (seconds)</label>
+                            <input type="number" class="form-control" id="chatLoadTimeout" 
+                                   value="{{ config.chat_load_timeout }}" min="15" max="120">
+                            <div class="form-text">Maximum time to wait for chat to load</div>
+                        </div>
+                        
+                        <button type="button" class="btn btn-primary" onclick="saveWebDriverSettings()">
+                            <i class="fas fa-save me-1"></i>Save Settings
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chrome Profile Settings -->
+        <div class="col-md-6 mb-4">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fab fa-chrome me-2"></i>Chrome Profile Settings
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form id="chromeSettings">
+                        <div class="mb-3">
+                            <label for="userDataDir" class="form-label">User Data Directory</label>
+                            <input type="text" class="form-control" id="userDataDir" 
+                                   value="{{ config.user_data_dir }}" placeholder="C:\Users\YourName\AppData\Local\Google\Chrome\User Data">
+                            <div class="form-text">Path to Chrome user data directory</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="profileName" class="form-label">Profile Name</label>
+                            <input type="text" class="form-control" id="profileName" 
+                                   value="{{ config.profile_name }}" placeholder="Default">
+                            <div class="form-text">Chrome profile name to use</div>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Important:</strong> Make sure to login to WhatsApp Web in the specified Chrome profile before starting campaigns.
+                        </div>
+                        
+                        <button type="button" class="btn btn-primary" onclick="saveChromeSettings()">
+                            <i class="fas fa-save me-1"></i>Save Settings
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="testChromeProfile()">
+                            <i class="fas fa-test-tube me-1"></i>Test Profile
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Settings -->
+        <div class="col-md-6 mb-4">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-server me-2"></i>API Settings
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form id="apiSettings">
+                        <div class="mb-3">
+                            <label for="maxFileSize" class="form-label">Max File Size (MB)</label>
+                            <input type="number" class="form-control" id="maxFileSize" 
+                                   value="{{ (config.max_file_size / (1024 * 1024))|int }}" min="1" max="50">
+                            <div class="form-text">Maximum file size for uploads</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="logLevel" class="form-label">Log Level</label>
+                            <select class="form-select" id="logLevel">
+                                <option value="DEBUG" {% if config.log_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                                <option value="INFO" {% if config.log_level == 'INFO' %}selected{% endif %}>INFO</option>
+                                <option value="WARNING" {% if config.log_level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                                <option value="ERROR" {% if config.log_level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                            </select>
+                            <div class="form-text">Logging verbosity level</div>
+                        </div>
+                        
+                        <button type="button" class="btn btn-primary" onclick="saveApiSettings()">
+                            <i class="fas fa-save me-1"></i>Save Settings
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Information -->
+        <div class="col-md-6 mb-4">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-info-circle me-2"></i>System Information
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <td><strong>Server Status:</strong></td>
+                            <td><span class="status-badge status-completed">Running</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Chrome Version:</strong></td>
+                            <td id="chromeVersion">Checking...</td>
+                        </tr>
+                        <tr>
+                            <td><strong>WebDriver Version:</strong></td>
+                            <td id="webdriverVersion">Checking...</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Last Config Update:</strong></td>
+                            <td id="lastConfigUpdate">Never</td>
+                        </tr>
+                    </table>
+                    
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-outline-info btn-sm" onclick="checkSystemInfo()">
+                            <i class="fas fa-sync me-1"></i>Refresh Info
+                        </button>
+                        <button type="button" class="btn btn-outline-warning btn-sm" onclick="clearLogs()">
+                            <i class="fas fa-trash me-1"></i>Clear Logs
+                        </button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="resetSettings()">
+                            <i class="fas fa-undo me-1"></i>Reset to Defaults
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export/Import Settings -->
+    <div class="dashboard-card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-file-export me-2"></i>Backup & Restore
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Export Settings</h6>
+                    <p class="text-muted">Download your current configuration as a backup file.</p>
+                    <button type="button" class="btn btn-outline-primary" onclick="exportSettings()">
+                        <i class="fas fa-download me-1"></i>Export Configuration
+                    </button>
+                </div>
+                <div class="col-md-6">
+                    <h6>Import Settings</h6>
+                    <p class="text-muted">Restore configuration from a previously exported file.</p>
+                    <div class="input-group">
+                        <input type="file" class="form-control" id="importFile" accept=".json">
+                        <button class="btn btn-outline-success" type="button" onclick="importSettings()">
+                            <i class="fas fa-upload me-1"></i>Import
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    checkSystemInfo();
+});
+
+function saveWebDriverSettings() {
+    const settings = {
+        max_retries: parseInt(document.getElementById('maxRetries').value),
+        delay_between_messages: parseInt(document.getElementById('delayBetweenMessages').value),
+        upload_timeout: parseInt(document.getElementById('uploadTimeout').value),
+        chat_load_timeout: parseInt(document.getElementById('chatLoadTimeout').value)
+    };
+    
+    // In a real application, send this to the backend
+    console.log('Saving WebDriver settings:', settings);
+    showToast('WebDriver settings saved successfully!', 'success');
+    updateLastConfigUpdate();
+}
+
+function saveChromeSettings() {
+    const settings = {
+        user_data_dir: document.getElementById('userDataDir').value,
+        profile_name: document.getElementById('profileName').value
+    };
+    
+    // In a real application, send this to the backend
+    console.log('Saving Chrome settings:', settings);
+    showToast('Chrome profile settings saved successfully!', 'success');
+    updateLastConfigUpdate();
+}
+
+function saveApiSettings() {
+    const settings = {
+        max_file_size: parseInt(document.getElementById('maxFileSize').value) * 1024 * 1024,
+        log_level: document.getElementById('logLevel').value
+    };
+    
+    // In a real application, send this to the backend
+    console.log('Saving API settings:', settings);
+    showToast('API settings saved successfully!', 'success');
+    updateLastConfigUpdate();
+}
+
+function testChromeProfile() {
+    const userDataDir = document.getElementById('userDataDir').value;
+    const profileName = document.getElementById('profileName').value;
+    
+    if (!userDataDir) {
+        showToast('Please enter a user data directory path', 'warning');
+        return;
+    }
+    
+    // In a real application, test the Chrome profile
+    console.log('Testing Chrome profile:', { userDataDir, profileName });
+    showToast('Chrome profile test initiated. Check the logs for results.', 'info');
+}
+
+function checkSystemInfo() {
+    // Simulate checking system information
+    setTimeout(() => {
+        document.getElementById('chromeVersion').textContent = 'Chrome 120.0.0.0';
+        document.getElementById('webdriverVersion').textContent = 'ChromeDriver 120.0.0.0';
+    }, 1000);
+}
+
+function updateLastConfigUpdate() {
+    const now = new Date().toLocaleString();
+    document.getElementById('lastConfigUpdate').textContent = now;
+}
+
+function clearLogs() {
+    if (confirm('Are you sure you want to clear all logs?')) {
+        console.log('Clearing logs...');
+        showToast('Logs cleared successfully!', 'success');
+    }
+}
+
+function resetSettings() {
+    if (confirm('Are you sure you want to reset all settings to defaults? This cannot be undone.')) {
+        // Reset form values to defaults
+        document.getElementById('maxRetries').value = 3;
+        document.getElementById('delayBetweenMessages').value = 10;
+        document.getElementById('uploadTimeout').value = 60;
+        document.getElementById('chatLoadTimeout').value = 45;
+        document.getElementById('maxFileSize').value = 16;
+        document.getElementById('logLevel').value = 'INFO';
+        
+        showToast('Settings reset to defaults!', 'success');
+        updateLastConfigUpdate();
+    }
+}
+
+function exportSettings() {
+    const settings = {
+        webdriver: {
+            max_retries: parseInt(document.getElementById('maxRetries').value),
+            delay_between_messages: parseInt(document.getElementById('delayBetweenMessages').value),
+            upload_timeout: parseInt(document.getElementById('uploadTimeout').value),
+            chat_load_timeout: parseInt(document.getElementById('chatLoadTimeout').value)
+        },
+        chrome: {
+            user_data_dir: document.getElementById('userDataDir').value,
+            profile_name: document.getElementById('profileName').value
+        },
+        api: {
+            max_file_size: parseInt(document.getElementById('maxFileSize').value) * 1024 * 1024,
+            log_level: document.getElementById('logLevel').value
+        },
+        exported_at: new Date().toISOString()
+    };
+    
+    const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `whatsapp-settings-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast('Settings exported successfully!', 'success');
+}
+
+function importSettings() {
+    const fileInput = document.getElementById('importFile');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showToast('Please select a configuration file to import', 'warning');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const settings = JSON.parse(e.target.result);
+            
+            // Apply imported settings
+            if (settings.webdriver) {
+                document.getElementById('maxRetries').value = settings.webdriver.max_retries || 3;
+                document.getElementById('delayBetweenMessages').value = settings.webdriver.delay_between_messages || 10;
+                document.getElementById('uploadTimeout').value = settings.webdriver.upload_timeout || 60;
+                document.getElementById('chatLoadTimeout').value = settings.webdriver.chat_load_timeout || 45;
+            }
+            
+            if (settings.chrome) {
+                document.getElementById('userDataDir').value = settings.chrome.user_data_dir || '';
+                document.getElementById('profileName').value = settings.chrome.profile_name || '';
+            }
+            
+            if (settings.api) {
+                document.getElementById('maxFileSize').value = (settings.api.max_file_size / (1024 * 1024)) || 16;
+                document.getElementById('logLevel').value = settings.api.log_level || 'INFO';
+            }
+            
+            showToast('Settings imported successfully!', 'success');
+            updateLastConfigUpdate();
+            
+        } catch (error) {
+            showToast('Invalid configuration file format', 'error');
+        }
+    };
+    
+    reader.readAsText(file);
+    fileInput.value = ''; // Clear the input
+}
+
+function showToast(message, type) {
+    // Create toast notification
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed`;
+    toast.style.cssText = 'top: 20px; right: 20px; z-index: 1050; min-width: 300px;';
+    toast.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - WhatsApp Marketing{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Hero Section -->
+    <div class="hero-section mb-4">
+        <div class="hero-content">
+            <h1 class="hero-title">WhatsApp Marketing Automation</h1>
+            <p class="hero-subtitle">Automate your promotional campaigns with ease</p>
+        </div>
+        <div class="hero-image">
+            <img src="https://pixabay.com/get/g83a153b44ab9a6d53969725216058b847e5789d2f1f3b10576dce8b3bdd971b501fc2ec1ee9a6dfda135d0a27a8e1cfa22baa6f1a4d84b23d836f3e1171eb01e_1280.jpg" alt="WhatsApp Marketing" class="img-fluid rounded">
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-blue">
+                <div class="stat-icon">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Total Customers</div>
+                    <div class="stat-number">{{ stats.total_customers }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-green">
+                <div class="stat-icon">
+                    <i class="fas fa-bullhorn"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Total Campaigns</div>
+                    <div class="stat-number">{{ stats.total_campaigns }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-yellow">
+                <div class="stat-icon">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Active Campaigns</div>
+                    <div class="stat-number">{{ stats.active_campaigns }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-purple">
+                <div class="stat-icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Completed</div>
+                    <div class="stat-number">{{ stats.completed_campaigns }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Campaigns -->
+    <div class="row">
+        <div class="col-12">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Recent Campaigns</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Campaign Name</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for campaign in recent_campaigns %}
+                                <tr>
+                                    <td>{{ campaign.name }}</td>
+                                    <td>{{ campaign.description }}</td>
+                                    <td>
+                                        <span class="status-badge status-{{ campaign.status }}">
+                                            {{ campaign.status }}
+                                        </span>
+                                    </td>
+                                    <td>{{ campaign.created_at }}</td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted">No campaigns found</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

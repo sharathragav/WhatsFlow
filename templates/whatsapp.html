@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}WhatsApp Connection - WhatsApp Marketing{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="mb-4">
+        <h2 class="page-title">WhatsApp Connection</h2>
+    </div>
+
+    <!-- Connection Status -->
+    <div class="dashboard-card mb-4">
+        <div class="card-body text-center">
+            <div class="connection-status mb-4">
+                <div class="status-indicator status-disconnected" id="connectionStatus">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <h4 class="status-text mt-3" id="statusText">Disconnected</h4>
+                <p class="text-muted" id="statusDescription">Waiting for WhatsApp service...</p>
+            </div>
+            
+            <div class="spinner-border text-success mb-3" role="status" id="loadingSpinner">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            
+            <button class="btn btn-success" onclick="refreshStatus()" id="refreshBtn">
+                <i class="fas fa-sync-alt me-1"></i>Refresh Status
+            </button>
+        </div>
+    </div>
+
+    <!-- Connection Instructions -->
+    <div class="row">
+        <div class="col-md-8">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-info-circle me-2"></i>WhatsApp Marketing Guidelines
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="guidelines-list">
+                        <div class="guideline-item">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Only send messages to customers who have opted-in
+                        </div>
+                        <div class="guideline-item">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Respect WhatsApp's messaging policies and rate limits
+                        </div>
+                        <div class="guideline-item">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Customers can reply 'STOP' to opt-out anytime
+                        </div>
+                        <div class="guideline-item">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Include clear unsubscribe instructions in your messages
+                        </div>
+                        <div class="guideline-item">
+                            <i class="fas fa-check-circle text-success me-2"></i>
+                            Keep messages relevant and valuable to recipients
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-qrcode me-2"></i>QR Code Scanner
+                    </h5>
+                </div>
+                <div class="card-body text-center">
+                    <div class="qr-placeholder mb-3">
+                        <i class="fab fa-whatsapp fa-4x text-muted"></i>
+                        <p class="text-muted mt-2">QR Code will appear here when scanning is needed</p>
+                    </div>
+                    <button class="btn btn-outline-primary" onclick="openWhatsAppWeb()">
+                        <i class="fas fa-external-link-alt me-1"></i>Open WhatsApp Web
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection History -->
+    <div class="dashboard-card mt-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-history me-2"></i>Connection History
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Duration</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody id="connectionHistory">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">No connection history available</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let connectionCheckInterval;
+
+document.addEventListener('DOMContentLoaded', function() {
+    checkConnectionStatus();
+    startConnectionMonitoring();
+});
+
+function checkConnectionStatus() {
+    // In a real implementation, this would check the actual WhatsApp connection status
+    // For demo purposes, we'll simulate the status
+    
+    const statusElement = document.getElementById('connectionStatus');
+    const statusText = document.getElementById('statusText');
+    const statusDescription = document.getElementById('statusDescription');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    
+    // Simulate checking status
+    setTimeout(() => {
+        const isConnected = Math.random() > 0.7; // 30% chance of being connected
+        
+        if (isConnected) {
+            statusElement.className = 'status-indicator status-connected';
+            statusElement.innerHTML = '<i class="fas fa-check-circle"></i>';
+            statusText.textContent = 'Connected';
+            statusDescription.textContent = 'WhatsApp Web is connected and ready to send messages';
+        } else {
+            statusElement.className = 'status-indicator status-disconnected';
+            statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
+            statusText.textContent = 'Disconnected';
+            statusDescription.textContent = 'Please scan QR code in WhatsApp Web to connect';
+        }
+        
+        loadingSpinner.style.display = 'none';
+        addConnectionHistoryEntry(isConnected ? 'Connected' : 'Disconnected');
+    }, 2000);
+}
+
+function refreshStatus() {
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const refreshBtn = document.getElementById('refreshBtn');
+    
+    loadingSpinner.style.display = 'inline-block';
+    refreshBtn.disabled = true;
+    
+    setTimeout(() => {
+        checkConnectionStatus();
+        refreshBtn.disabled = false;
+    }, 1000);
+}
+
+function startConnectionMonitoring() {
+    // Check connection status every 30 seconds
+    connectionCheckInterval = setInterval(checkConnectionStatus, 30000);
+}
+
+function openWhatsAppWeb() {
+    window.open('https://web.whatsapp.com', '_blank');
+}
+
+function addConnectionHistoryEntry(status) {
+    const historyTable = document.getElementById('connectionHistory');
+    const now = new Date();
+    const dateStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+    
+    // Remove the "no history" row if it exists
+    const noHistoryRow = historyTable.querySelector('td[colspan="4"]');
+    if (noHistoryRow) {
+        noHistoryRow.parentElement.remove();
+    }
+    
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>${dateStr}</td>
+        <td>
+            <span class="status-badge status-${status.toLowerCase()}">
+                ${status}
+            </span>
+        </td>
+        <td>-</td>
+        <td>Automatic status check</td>
+    `;
+    
+    historyTable.insertBefore(newRow, historyTable.firstChild);
+    
+    // Keep only the last 10 entries
+    const rows = historyTable.querySelectorAll('tr');
+    if (rows.length > 10) {
+        rows[rows.length - 1].remove();
+    }
+}
+
+// Cleanup interval on page unload
+window.addEventListener('beforeunload', function() {
+    if (connectionCheckInterval) {
+        clearInterval(connectionCheckInterval);
+    }
+});
+</script>
+{% endblock %}

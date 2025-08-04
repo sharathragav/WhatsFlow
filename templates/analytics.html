@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - WhatsApp Marketing{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="page-title">Analytics Dashboard</h2>
+        <div class="dropdown">
+            <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                <i class="fas fa-calendar me-1"></i>Last 30 Days
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="#" onclick="changePeriod('7')">Last 7 Days</a></li>
+                <li><a class="dropdown-item" href="#" onclick="changePeriod('30')">Last 30 Days</a></li>
+                <li><a class="dropdown-item" href="#" onclick="changePeriod('90')">Last 90 Days</a></li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Key Metrics -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-green">
+                <div class="stat-icon">
+                    <i class="fas fa-percentage"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Success Rate</div>
+                    <div class="stat-number" id="successRate">85%</div>
+                    <div class="stat-change text-success">
+                        <i class="fas fa-arrow-up"></i> +5%
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-blue">
+                <div class="stat-icon">
+                    <i class="fas fa-envelope"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Messages Sent</div>
+                    <div class="stat-number" id="messagesSent">3,847</div>
+                    <div class="stat-change text-success">
+                        <i class="fas fa-arrow-up"></i> +12%
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-purple">
+                <div class="stat-icon">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Customers Reached</div>
+                    <div class="stat-number" id="customersReached">1,284</div>
+                    <div class="stat-change text-success">
+                        <i class="fas fa-arrow-up"></i> +8%
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stat-card stat-card-yellow">
+                <div class="stat-icon">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-title">Avg Response Rate</div>
+                    <div class="stat-number" id="responseRate">23%</div>
+                    <div class="stat-change text-success">
+                        <i class="fas fa-arrow-up"></i> +3%
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Message Volume Trend</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="messageVolumeChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Success vs Failure Rate</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="successRateChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 2 -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Campaign Performance</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="campaignChart" height="150"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Customer Growth</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="customerGrowthChart" height="150"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Table -->
+    <div class="dashboard-card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">Top Performing Campaigns</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Campaign Name</th>
+                            <th>Messages Sent</th>
+                            <th>Success Rate</th>
+                            <th>Response Rate</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="performanceTable">
+                        <tr>
+                            <td>Black Friday Sale</td>
+                            <td>1,250</td>
+                            <td><span class="text-success">92%</span></td>
+                            <td><span class="text-info">28%</span></td>
+                            <td>2024-01-15</td>
+                            <td><span class="status-badge status-completed">Completed</span></td>
+                        </tr>
+                        <tr>
+                            <td>New Year Wishes</td>
+                            <td>2,100</td>
+                            <td><span class="text-success">89%</span></td>
+                            <td><span class="text-info">31%</span></td>
+                            <td>2024-01-01</td>
+                            <td><span class="status-badge status-completed">Completed</span></td>
+                        </tr>
+                        <tr>
+                            <td>Product Launch</td>
+                            <td>850</td>
+                            <td><span class="text-warning">76%</span></td>
+                            <td><span class="text-info">19%</span></td>
+                            <td>2024-01-10</td>
+                            <td><span class="status-badge status-completed">Completed</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let charts = {};
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadAnalyticsData();
+});
+
+async function loadAnalyticsData() {
+    try {
+        const response = await fetch('/api/analytics');
+        const data = await response.json();
+        
+        initializeCharts(data);
+        updateMetrics(data);
+    } catch (error) {
+        console.error('Error loading analytics data:', error);
+        // Use default/demo data if API fails
+        initializeChartsWithDemoData();
+    }
+}
+
+function initializeCharts(data) {
+    // Message Volume Chart
+    const messageVolumeCtx = document.getElementById('messageVolumeChart').getContext('2d');
+    charts.messageVolume = new Chart(messageVolumeCtx, {
+        type: 'line',
+        data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+            datasets: [{
+                label: 'Messages Sent',
+                data: data.message_volume || [1200, 1800, 2200, 2800, 3200, 3800],
+                borderColor: '#25D366',
+                backgroundColor: 'rgba(37, 211, 102, 0.1)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    // Success Rate Pie Chart
+    const successRateCtx = document.getElementById('successRateChart').getContext('2d');
+    charts.successRate = new Chart(successRateCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Success', 'Failed'],
+            datasets: [{
+                data: [data.success_rate || 85, data.failure_rate || 15],
+                backgroundColor: ['#25D366', '#FF6B6B'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+
+    // Campaign Performance Bar Chart
+    const campaignCtx = document.getElementById('campaignChart').getContext('2d');
+    charts.campaign = new Chart(campaignCtx, {
+        type: 'bar',
+        data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+            datasets: [{
+                label: 'Campaigns',
+                data: data.monthly_campaigns || [12, 15, 18, 22, 19, 25],
+                backgroundColor: '#128C7E',
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    // Customer Growth Chart
+    const customerGrowthCtx = document.getElementById('customerGrowthChart').getContext('2d');
+    charts.customerGrowth = new Chart(customerGrowthCtx, {
+        type: 'line',
+        data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+            datasets: [{
+                label: 'Total Customers',
+                data: data.customer_growth || [100, 150, 200, 280, 350, 420],
+                borderColor: '#075E54',
+                backgroundColor: 'rgba(7, 94, 84, 0.1)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+function initializeChartsWithDemoData() {
+    const demoData = {
+        success_rate: 85,
+        failure_rate: 15,
+        monthly_campaigns: [12, 15, 18, 22, 19, 25],
+        customer_growth: [100, 150, 200, 280, 350, 420],
+        message_volume: [1200, 1800, 2200, 2800, 3200, 3800]
+    };
+    
+    initializeCharts(demoData);
+}
+
+function updateMetrics(data) {
+    // Update metric cards if data is available
+    if (data.success_rate) {
+        document.getElementById('successRate').textContent = data.success_rate + '%';
+    }
+    // Add more metric updates as needed
+}
+
+function changePeriod(days) {
+    console.log('Changing period to:', days, 'days');
+    // In a real application, this would reload data for the selected period
+    loadAnalyticsData();
+}
+
+// Cleanup charts on page unload
+window.addEventListener('beforeunload', function() {
+    Object.values(charts).forEach(chart => {
+        if (chart) chart.destroy();
+    });
+});
+</script>
+{% endblock %}

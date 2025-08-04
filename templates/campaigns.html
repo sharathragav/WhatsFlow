@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}Campaign Management - WhatsApp Marketing{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="page-title">Campaign Management</h2>
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createCampaignModal">
+            <i class="fas fa-plus me-1"></i>Create Campaign
+        </button>
+    </div>
+
+    <!-- Create New Campaign Form -->
+    <div class="dashboard-card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">Create New Campaign</h5>
+        </div>
+        <div class="card-body">
+            <form id="campaignForm" enctype="multipart/form-data">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="campaignName" class="form-label">Campaign Name</label>
+                        <input type="text" class="form-control" id="campaignName" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="campaignDate" class="form-label">Scheduled Date</label>
+                        <input type="datetime-local" class="form-control" id="campaignDate">
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="campaignDescription" class="form-label">Campaign Description</label>
+                    <textarea class="form-control" id="campaignDescription" rows="3"></textarea>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="messageText" class="form-label">Message Text</label>
+                    <textarea class="form-control" id="messageText" rows="4" placeholder="Enter your message here..."></textarea>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="campaignImage" class="form-label">Upload Campaign Image</label>
+                    <input type="file" class="form-control" id="campaignImage" accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.txt">
+                    <div class="form-text">Optional: Upload an image or file to send with the message</div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Select Target Customers</label>
+                    <div class="customer-selection">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="selectAll">
+                            <label class="form-check-label fw-bold" for="selectAll">
+                                Select All ({{ customers|length }})
+                            </label>
+                        </div>
+                        <div class="customer-list">
+                            {% for customer in customers %}
+                            <div class="form-check">
+                                <input class="form-check-input customer-checkbox" type="checkbox" 
+                                       id="customer{{ customer.id }}" value="{{ customer.id }}">
+                                <label class="form-check-label" for="customer{{ customer.id }}">
+                                    {{ customer.name }} ({{ customer.phone }})
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary" onclick="createCampaign()">
+                        <i class="fas fa-rocket me-1"></i>Create & Send Campaign
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="saveDraft()">
+                        <i class="fas fa-save me-1"></i>Save as Draft
+                    </button>
+                    <button type="reset" class="btn btn-outline-danger">
+                        <i class="fas fa-times me-1"></i>Clear Form
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Campaign History -->
+    <div class="dashboard-card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">Campaign History</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="campaignsTable">
+                    <thead>
+                        <tr>
+                            <th>Campaign Name</th>
+                            <th>Description</th>
+                            <th>Status</th>
+                            <th>Created Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for campaign in campaigns %}
+                        <tr>
+                            <td>{{ campaign.name }}</td>
+                            <td>{{ campaign.description }}</td>
+                            <td>
+                                <span class="status-badge status-{{ campaign.status }}">
+                                    {{ campaign.status }}
+                                </span>
+                            </td>
+                            <td>{{ campaign.created_at }}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-primary" onclick="viewCampaign({{ campaign.id }})">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button class="btn btn-outline-success" onclick="duplicateCampaign({{ campaign.id }})">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger" onclick="deleteCampaign({{ campaign.id }})">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted">No campaigns found</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- DataTables -->
+<link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+$(document).ready(function() {
+    $('#campaignsTable').DataTable({
+        responsive: true,
+        pageLength: 25,
+        order: [[3, 'desc']]
+    });
+    
+    // Select All functionality
+    $('#selectAll').change(function() {
+        $('.customer-checkbox').prop('checked', this.checked);
+    });
+    
+    $('.customer-checkbox').change(function() {
+        const total = $('.customer-checkbox').length;
+        const checked = $('.customer-checkbox:checked').length;
+        $('#selectAll').prop('checked', total === checked);
+    });
+});
+
+function createCampaign() {
+    const formData = new FormData();
+    
+    // Get form values
+    const campaignName = document.getElementById('campaignName').value;
+    const campaignDescription = document.getElementById('campaignDescription').value;
+    const messageText = document.getElementById('messageText').value;
+    const campaignImage = document.getElementById('campaignImage').files[0];
+    
+    // Get selected customers
+    const selectedCustomers = Array.from(document.querySelectorAll('.customer-checkbox:checked'))
+                                   .map(cb => cb.value);
+    
+    if (!campaignName) {
+        alert('Campaign name is required');
+        return;
+    }
+    
+    if (selectedCustomers.length === 0) {
+        alert('Please select at least one customer');
+        return;
+    }
+    
+    // Create Excel file with selected customers and message
+    createAndSendCampaign(campaignName, messageText, selectedCustomers, campaignImage);
+}
+
+function createAndSendCampaign(name, message, customers, image) {
+    // In a real application, this would create an Excel file with the selected customers
+    // and send it to the bulk sender API
+    console.log('Creating campaign:', { name, message, customers, image });
+    
+    // Simulate API call
+    alert('Campaign creation functionality would be implemented here. This would:\n' +
+          '1. Create an Excel file with selected customers\n' +
+          '2. Include the message text\n' +
+          '3. Send to the bulk sender API\n' +
+          '4. Start the sending process');
+    
+    // Reset form
+    document.getElementById('campaignForm').reset();
+    $('#selectAll').prop('checked', false);
+}
+
+function saveDraft() {
+    // Implement save draft functionality
+    console.log('Saving campaign as draft');
+    alert('Draft saved successfully!');
+}
+
+function viewCampaign(campaignId) {
+    console.log('Viewing campaign:', campaignId);
+    // Implement view campaign functionality
+}
+
+function duplicateCampaign(campaignId) {
+    console.log('Duplicating campaign:', campaignId);
+    // Implement duplicate campaign functionality
+}
+
+function deleteCampaign(campaignId) {
+    if (confirm('Are you sure you want to delete this campaign?')) {
+        console.log('Deleting campaign:', campaignId);
+        // Implement delete campaign functionality
+    }
+}
+</script>
+{% endblock %}
