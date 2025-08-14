@@ -3,6 +3,8 @@
 {% block title %}WhatsApp Connection - WhatsApp Marketing{% endblock %}
 
 {% block content %}
+<div id="toast"></div>
+
 <div class="container-fluid py-4">
     <!-- Page Header -->
     <div class="mb-4">
@@ -24,9 +26,11 @@
                 <span class="visually-hidden">Loading...</span>
             </div>
             
-            <button class="btn btn-success" onclick="refreshStatus()" id="refreshBtn">
-                <i class="fas fa-sync-alt me-1"></i>Refresh Status
-            </button>
+            <div class="btn-group" role="group">
+                <button class="btn btn-primary" id="getQrBtn"><i class="fas fa-qrcode me-1"></i>Get QR Code</button>
+                <button class="btn btn-info" id="refreshBtn"><i class="fas fa-sync-alt me-1"></i>Refresh Status</button>
+                <button class="btn btn-danger" id="disconnectBtn"><i class="fas fa-power-off me-1"></i>Disconnect</button>
+            </div>
         </div>
     </div>
 
@@ -79,14 +83,7 @@
                         <p id="qrCodeText" class="text-muted mt-2">QR Code will appear here when scanning is needed</p>
                     </div>
                     <img id="qrCodeImage" style="display: none; max-width: 100%; height: auto; border-radius: 8px;" alt="WhatsApp QR Code">
-                    <div class="mt-3">
-                        <button class="btn btn-primary me-2" onclick="getQRCode()">
-                            <i class="fas fa-qrcode me-1"></i>Get QR Code
-                        </button>
-                        <button class="btn btn-outline-primary" onclick="openWhatsAppWeb()">
-                            <i class="fas fa-external-link-alt me-1"></i>Open WhatsApp Web
-                        </button>
-                    </div>
+                    <p class="text-muted small mt-3">Use the buttons above to manage your connection. The QR code will appear here when needed.</p>
                 </div>
             </div>
         </div>
@@ -123,213 +120,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-let connectionCheckInterval;
-
-document.addEventListener('DOMContentLoaded', function() {
-    checkConnectionStatus();
-    startConnectionMonitoring();
-});
-
-function checkConnectionStatus() {
-    const statusElement = document.getElementById('connectionStatus');
-    const statusText = document.getElementById('statusText');
-    const statusDescription = document.getElementById('statusDescription');
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    
-    // Show loading
-    loadingSpinner.style.display = 'inline-block';
-    statusText.textContent = 'Checking...';
-    statusDescription.textContent = 'Testing WhatsApp connection...';
-    
-    // Make actual API call to check WhatsApp status
-    fetch('/api/whatsapp/status')
-        .then(response => response.json())
-        .then(data => {
-            // Hide loading
-            loadingSpinner.style.display = 'none';
-            
-            if (data.connected) {
-                statusElement.className = 'status-indicator status-connected';
-                statusElement.innerHTML = '<i class="fas fa-check-circle"></i>';
-                statusText.textContent = 'Connected';
-                statusDescription.textContent = data.message;
-            } else {
-                statusElement.className = 'status-indicator status-disconnected';
-                statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
-                statusText.textContent = 'Disconnected';
-                statusDescription.textContent = data.message;
-                
-                if (data.status === 'qr_required') {
-                    statusDescription.innerHTML += '<br><small>Please scan QR code in WhatsApp Web to connect</small>';
-                }
-            }
-            
-            // Add to connection history
-            addConnectionHistory(data);
-        })
-        .catch(error => {
-            console.error('Error checking connection:', error);
-            loadingSpinner.style.display = 'none';
-            
-            statusElement.className = 'status-indicator status-disconnected';
-            statusElement.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
-            statusText.textContent = 'Error';
-            statusDescription.textContent = 'Failed to check connection status';
-        });
-}
-
-function addConnectionHistory(statusData) {
-    const historyTable = document.getElementById('connectionHistory');
-    const timestamp = new Date(statusData.timestamp).toLocaleString();
-    
-    // Check if this is the first entry (remove "no history" message)
-    if (historyTable.children.length === 1 && historyTable.children[0].children.length === 1) {
-        historyTable.innerHTML = '';
-    }
-    
-    const row = document.createElement('tr');
-    row.innerHTML = `
-        <td>${timestamp}</td>
-        <td>
-            <span class="status-badge ${statusData.connected ? 'status-connected' : 'status-disconnected'}">
-                ${statusData.connected ? 'Connected' : 'Disconnected'}
-            </span>
-        </td>
-        <td>-</td>
-        <td>${statusData.message}</td>
-    `;
-    
-    // Add to top of table
-    historyTable.insertBefore(row, historyTable.firstChild);
-    
-    // Keep only last 10 entries
-    while (historyTable.children.length > 10) {
-        historyTable.removeChild(historyTable.lastChild);
-    }
-}
-
-function refreshStatus() {
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    const refreshBtn = document.getElementById('refreshBtn');
-    
-    loadingSpinner.style.display = 'inline-block';
-    refreshBtn.disabled = true;
-    
-    setTimeout(() => {
-        checkConnectionStatus();
-        refreshBtn.disabled = false;
-    }, 1000);
-}
-
-function startConnectionMonitoring() {
-    // Check connection status every 30 seconds
-    connectionCheckInterval = setInterval(checkConnectionStatus, 30000);
-}
-
-function getQRCode() {
-    const qrCodeArea = document.getElementById('qrCodeArea');
-    const qrCodeImage = document.getElementById('qrCodeImage');
-    const qrCodeText = document.getElementById('qrCodeText');
-    const getQRButton = document.querySelector('button[onclick="getQRCode()"]');
-    
-    // Show loading state
-    getQRButton.disabled = true;
-    getQRButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Getting QR Code...';
-    qrCodeText.textContent = 'Retrieving QR code from WhatsApp Web...';
-    
-    fetch('/api/whatsapp/qr')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.qr_code) {
-                // Hide placeholder and show QR code image
-                qrCodeArea.style.display = 'none';
-                qrCodeImage.src = data.qr_code;
-                qrCodeImage.style.display = 'block';
-                
-                // Update button to allow refresh
-                getQRButton.innerHTML = '<i class="fas fa-sync me-1"></i>Refresh QR Code';
-                
-                // Show success message
-                qrCodeText.textContent = 'Scan this QR code with your phone to connect WhatsApp Web';
-                qrCodeText.style.display = 'block';
-                
-            } else if (data.already_connected) {
-                // WhatsApp is already connected
-                qrCodeArea.innerHTML = `
-                    <i class="fas fa-check-circle fa-4x text-success"></i>
-                    <p class="text-success mt-2 fw-bold">WhatsApp Web Already Connected!</p>
-                    <small class="text-muted">No QR code needed - you're ready to send messages</small>
-                `;
-                getQRButton.innerHTML = '<i class="fas fa-check me-1"></i>Already Connected';
-                
-            } else {
-                // Error occurred
-                qrCodeText.textContent = data.message || 'Failed to retrieve QR code';
-                qrCodeArea.innerHTML = `
-                    <i class="fas fa-exclamation-triangle fa-4x text-warning"></i>
-                    <p class="text-warning mt-2">${data.message}</p>
-                    <small class="text-muted">Try refreshing or check your connection</small>
-                `;
-                getQRButton.innerHTML = '<i class="fas fa-retry me-1"></i>Try Again';
-            }
-        })
-        .catch(error => {
-            console.error('Error getting QR code:', error);
-            qrCodeText.textContent = 'Failed to retrieve QR code - check console for details';
-            qrCodeArea.innerHTML = `
-                <i class="fas fa-times-circle fa-4x text-danger"></i>
-                <p class="text-danger mt-2">Connection Error</p>
-                <small class="text-muted">Please try again or check your internet connection</small>
-            `;
-            getQRButton.innerHTML = '<i class="fas fa-retry me-1"></i>Try Again';
-        })
-        .finally(() => {
-            getQRButton.disabled = false;
-        });
-}
-
-function openWhatsAppWeb() {
-    window.open('https://web.whatsapp.com', '_blank');
-}
-
-function addConnectionHistoryEntry(status) {
-    const historyTable = document.getElementById('connectionHistory');
-    const now = new Date();
-    const dateStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
-    
-    // Remove the "no history" row if it exists
-    const noHistoryRow = historyTable.querySelector('td[colspan="4"]');
-    if (noHistoryRow) {
-        noHistoryRow.parentElement.remove();
-    }
-    
-    const newRow = document.createElement('tr');
-    newRow.innerHTML = `
-        <td>${dateStr}</td>
-        <td>
-            <span class="status-badge status-${status.toLowerCase()}">
-                ${status}
-            </span>
-        </td>
-        <td>-</td>
-        <td>Automatic status check</td>
-    `;
-    
-    historyTable.insertBefore(newRow, historyTable.firstChild);
-    
-    // Keep only the last 10 entries
-    const rows = historyTable.querySelectorAll('tr');
-    if (rows.length > 10) {
-        rows[rows.length - 1].remove();
-    }
-}
-
-// Cleanup interval on page unload
-window.addEventListener('beforeunload', function() {
-    if (connectionCheckInterval) {
-        clearInterval(connectionCheckInterval);
-    }
-});
-</script>
+<script src="{{ url_for('static', filename='js/whatsapp.js') }}"></script>
 {% endblock %}

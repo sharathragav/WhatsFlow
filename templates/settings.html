@@ -246,23 +246,69 @@ function saveWebDriverSettings() {
         upload_timeout: parseInt(document.getElementById('uploadTimeout').value),
         chat_load_timeout: parseInt(document.getElementById('chatLoadTimeout').value)
     };
-    
+    console.log('Sending settings to backend:', settings);
+
+    fetch('/api/settings/websettings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings)
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(errorData => {
+                throw new Error(errorData.error || 'Network response was not ok');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Server response:', data);
+        showToast('WebDriver settings saved successfully!', 'success');
+        updateLastConfigUpdate();
+    })
+    .catch(error => {
+        console.error('Error saving settings:', error);
+        showToast(`Failed to save settings: ${error.message}`, 'error');
+    });
     // In a real application, send this to the backend
-    console.log('Saving WebDriver settings:', settings);
-    showToast('WebDriver settings saved successfully!', 'success');
-    updateLastConfigUpdate();
+ 
 }
 
+// This function will now send the form data to the Flask backend
 function saveChromeSettings() {
     const settings = {
         user_data_dir: document.getElementById('userDataDir').value,
         profile_name: document.getElementById('profileName').value
     };
     
-    // In a real application, send this to the backend
-    console.log('Saving Chrome settings:', settings);
-    showToast('Chrome profile settings saved successfully!', 'success');
-    updateLastConfigUpdate();
+    console.log('Sending settings to backend:', settings);
+
+    fetch('/api/settings/profile', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings)
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(errorData => {
+                throw new Error(errorData.error || 'Network response was not ok');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Server response:', data);
+        showToast(data.message, 'success');
+        updateLastConfigUpdate();
+    })
+    .catch(error => {
+        console.error('Error saving settings:', error);
+        showToast(`Failed to save settings: ${error.message}`, 'error');
+    });
 }
 
 function saveApiSettings() {

@@ -1,15 +1,11 @@
 {% extends "base.html" %}
-
 {% block title %}Campaign Management - WhatsApp Marketing{% endblock %}
-
 {% block content %}
+
 <div class="container-fluid py-4">
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="page-title">Campaign Management</h2>
-        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createCampaignModal">
-            <i class="fas fa-plus me-1"></i>Create Campaign
-        </button>
     </div>
 
     <!-- Create New Campaign Form -->
@@ -41,9 +37,9 @@
                 </div>
                 
                 <div class="mb-3">
-                    <label for="campaignImage" class="form-label">Upload Campaign Image</label>
-                    <input type="file" class="form-control" id="campaignImage" accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.txt">
-                    <div class="form-text">Optional: Upload an image or file to send with the message</div>
+                    <label for="campaignDocument" class="form-label">Upload Campaign Document</label>
+                    <input type="file" class="form-control" id="campaignDocument" accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx,.txt">
+                    <div class="form-text">Optional: Upload an Document to send with the message</div>
                 </div>
                 
                 <div class="mb-3">
@@ -126,10 +122,6 @@
                                 </div>
                             </td>
                         </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="5" class="text-center text-muted">No campaigns found</td>
-                        </tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -180,25 +172,49 @@ function viewCampaign(campaignId) {
 }
 
 function duplicateCampaign(campaignId) {
-    if (confirm('Are you sure you want to duplicate this campaign?')) {
         fetch(`/api/campaigns/${campaignId}/duplicate`, {
-            method: 'POST'
+            method: 'GET'
         })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert('Error: ' + data.error);
-            } else {
-                alert('Campaign duplicated successfully!');
-                location.reload(); // Refresh the page to show new campaign
+        .then(response => {
+            if(!response.ok){
+                throw new Error('Didnt get he campangin data')
             }
+            return response.json()
+        })
+        .then(data=>{
+            console.log(data);
+             document.getElementById('campaignName').value = data.name;
+            document.getElementById('campaignDescription').value = data.description;
+            document.getElementById('messageText').value = data.message;
+            console.log(data.scheduled_Date)
+            if (data.scheduled_Date) {
+                    const dt = new Date(data.scheduled_Date);
+                    if (!isNaN(dt)) {
+                        document.getElementById('campaignDate').value = dt.toISOString().slice(0, 16);
+                    } else {    
+                        document.getElementById('campaignDate').value = '';
+                    }
+                } else {
+                    document.getElementById('campaignDate').value = '';
+                }            
+            const selectedCustomers = data.recipients; // Assuming this is an array of customer IDs
+            // document.querySelectorAll('.customer-checkbox').forEach(checkbox => {
+            //     // Check the box if its value (customer ID) is in the selectedCustomers array
+            //     checkbox.checked = selectedCustomers.includes(parseInt(checkbox.value));
+            // });
+            
+            // // Update the form's submit button to reflect 'Update' action
+            // document.getElementById('submitButton').innerHTML = '<i class="fas fa-edit me-1"></i>Update Campaign';
+
+            // // Optional: Scroll to the form to bring it into view
+            // document.getElementById('campaignForm').scrollIntoView({ behavior: 'smooth' });
+        
         })
         .catch(error => {
-            console.error('Error:', error);
-            alert('Failed to duplicate campaign');
+            console.error('Error fetching campaign for edit:', error);
+            alert('Failed to load campaign data for editing.');
         });
     }
-}
 
 function deleteCampaign(campaignId) {
     if (confirm('Are you sure you want to delete this campaign? This action cannot be undone.')) {
@@ -220,65 +236,6 @@ function deleteCampaign(campaignId) {
         });
     }
 }
-
-function createCampaign() {
-    const campaignName = document.getElementById('campaignName').value;
-    const campaignDescription = document.getElementById('campaignDescription').value;
-    const messageText = document.getElementById('messageText').value;
-    
-    if (!campaignName || !messageText) {
-        alert('Campaign name and message are required');
-        return;
-    }
-    
-    // Get selected customers
-    const selectedCustomers = [];
-    const checkboxes = document.querySelectorAll('.customer-checkbox:checked');
-    checkboxes.forEach(checkbox => {
-        selectedCustomers.push(parseInt(checkbox.value));
-    });
-    
-    if (selectedCustomers.length === 0) {
-        alert('Please select at least one customer');
-        return;
-    }
-    
-    // Show loading state
-    const createButton = document.querySelector('button[onclick="createCampaign()"]');
-    createButton.disabled = true;
-    createButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Creating Campaign...';
-    
-    // Create campaign via API
-    fetch('/api/campaigns', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            name: campaignName,
-            description: campaignDescription,
-            message: messageText
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            alert('Error: ' + data.error);
-        } else {
-            alert('Campaign created successfully!');
-            location.reload(); // Refresh page to show new campaign
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to create campaign');
-    })
-    .finally(() => {
-        createButton.disabled = false;
-        createButton.innerHTML = '<i class="fas fa-rocket me-1"></i>Create & Send Campaign';
-    });
-}
-
 function saveDraft() {
     const campaignName = document.getElementById('campaignName').value;
     const campaignDescription = document.getElementById('campaignDescription').value;
@@ -288,9 +245,19 @@ function saveDraft() {
         alert('Campaign name and message are required');
         return;
     }
-    
+
+    const selectedRecipients = [];
+    const checkboxes = document.querySelectorAll('.customer-checkbox:checked');
+    checkboxes.forEach(checkbox => {
+        selectedRecipients.push(parseInt(checkbox.value));
+    });
+    if (selectedRecipients.length === 0) {
+        alert('Please select at least one recipient for the draft');
+        return;
+    }
+
     // Save as draft via API
-    fetch('/api/campaigns', {
+    fetch('/api/campaigns/draft', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -299,7 +266,8 @@ function saveDraft() {
             name: campaignName,
             description: campaignDescription,
             message: messageText,
-            status: 'draft'
+            status: 'draft',
+            recipients: selectedRecipients
         })
     })
     .then(response => response.json())
@@ -316,5 +284,81 @@ function saveDraft() {
         alert('Failed to save draft');
     });
 }
+
+async function createCampaign() {
+    // Select the button once at the start
+    const createButton = document.querySelector('button[onclick="createCampaign()"]');
+    // This is the main block for our logic and error handling
+    try {
+        // 1. Get all values from the form
+        const campaignName = document.getElementById('campaignName').value;
+        const campaignDescription = document.getElementById('campaignDescription').value;
+        const messageText = document.getElementById('messageText').value;
+        const scheduledDate = document.getElementById('campaignDate').value || null;
+        const fileInput = document.getElementById('campaignDocument');
+
+        // 2. Validate required fields
+        if (!campaignName || !messageText) {
+            alert('Campaign name and message are required');
+            return; // Exit the function
+        }
+
+        const selectedRecipients = [];
+        const checkboxes = document.querySelectorAll('.customer-checkbox:checked');
+        checkboxes.forEach(checkbox => {
+            selectedRecipients.push(parseInt(checkbox.value));
+        });
+        if (selectedRecipients.length === 0) {
+            alert('Please select at least one recipient');
+            return; // Exit the function
+        }
+
+        // 3. Set loading state on the button
+        createButton.disabled = true;
+        createButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Creating Campaign...';
+
+        // 4. Build the FormData object
+        const fd = new FormData();
+        fd.append('name', campaignName);
+        fd.append('description', campaignDescription);
+        fd.append('message', messageText);
+        fd.append('recipients', JSON.stringify(selectedRecipients));
+        fd.append('status', scheduledDate ? 'scheduled' : 'queued');
+
+        if (scheduledDate) {
+            fd.append('scheduled_date', scheduledDate);
+        }
+
+        if (fileInput.files.length > 0) {
+            fd.append('attachment', fileInput.files[0]);
+        }
+
+        // 5. Send the FormData object via fetch
+        const resp = await fetch('/api/campaigns/send', {
+            method: 'POST',
+            body: fd
+        });
+
+        const data = await resp.json();
+        
+        if (!resp.ok) {
+            // Throw an error to be caught by the catch block
+            throw new Error(data.error || 'Failed to create campaign');
+        }
+
+        alert("Campaign created successfully!");
+        location.reload();
+
+    } catch (err) {
+        // 6. Catch any errors that occurred in the try block
+        console.error('Error:', err);
+        alert('Error: ' + err.message);
+    } finally {
+        // 7. This runs regardless of success or failure
+        createButton.disabled = false;
+        createButton.innerHTML = '<i class="fas fa-rocket me-1"></i>Create & Send Campaign';
+    }
+}
+
 </script>
 {% endblock %}
