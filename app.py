@@ -3,16 +3,25 @@ import json
 import time
 import threading
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
+from flask import Flask, current_app, render_template, request, jsonify, redirect, url_for, flash, session
+from flask import request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 import pandas as pd
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+import sqlite3
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 # Import the existing WhatsApp sender
 from whatsapp_sender.sender import WhatsAppBulkSender
 from whatsapp_sender.config import CONFIG
+
+# Global WhatsApp sender instance
+whatsapp_sender = None
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -22,9 +31,23 @@ app.secret_key = os.environ.get("SESSION_SECRET", "whatsapp-bulk-sender-secret-k
 CORS(app)
 
 # Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///whatsapp_bulk.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///'+os.path.join(app.instance_path, 'whatsapp_bulk.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'connect_args': {'timeout': 30}}
 db = SQLAlchemy(app)
+
+# ensure SQLite enforces foreign key constraints
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    # Only for SQLite connections
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+# --- APScheduler Configuration ---
+jobstores = {'default': SQLAlchemyJobStore(url=app.config['SQLALCHEMY_DATABASE_URI'])}
+scheduler = BackgroundScheduler(jobstores=jobstores)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -55,7 +78,7 @@ class Customer(db.Model):
     phone = db.Column(db.String(20), nullable=False, unique=True)
     email = db.Column(db.String(120), nullable=True)
     status = db.Column(db.String(20), default='Opted In')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     
     def to_dict(self):
         return {
@@ -73,51 +96,79 @@ class Campaign(db.Model):
     description = db.Column(db.Text, nullable=True)
     message = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), default='draft')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    scheduled_at = db.Column(db.DateTime, nullable=True)
     sent_count = db.Column(db.Integer, default=0)
     failed_count = db.Column(db.Integer, default=0)
-    
+    attachment_path=db.Column(db.String(100),nullable=True)
+
+    # CHANGED: Use back_populates to explicitly link to the 'campaign' attribute on the other model
+    recipients = db.relationship(
+        'CampaignRecipient',
+        back_populates='campaign',
+        lazy='dynamic',
+        cascade='all, delete-orphan',
+        passive_deletes=True
+    )
+
     def to_dict(self):
+        # ... (your to_dict method remains the same) ...
+        #print("\n\n\nDATE",self.scheduled_at)
         return {
             'id': self.id,
             'name': self.name,
             'description': self.description or '',
             'message': self.message or '',
+            'scheduled_Date':self.scheduled_at.strftime('%Y-%m-%dT%H:%M') if self.scheduled_at else None,
             'status': self.status,
             'created_at': self.created_at.strftime('%Y-%m-%d'),
             'sent_count': self.sent_count,
-            'failed_count': self.failed_count
+            'failed_count': self.failed_count,
+            'attachments':self.attachment_path
+        }
+
+
+class CampaignRecipient(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey('campaign.id', ondelete='CASCADE'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    
+    # ENSURE THIS LINE EXISTS EXACTLY AS WRITTEN:
+    status = db.Column(db.String(20), default='pending')
+    
+    attempts = db.Column(db.Integer, default=0)
+    recipient_name = db.Column(db.String(100), nullable=False)
+    recipient_phone = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    customer = db.relationship('Customer', lazy='joined')
+    campaign = db.relationship('Campaign', back_populates='recipients')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'campaign_id': self.campaign_id,
+            'recipient_name': self.recipient_name,
+            'recipient_phone': self.recipient_phone,
+            'status': self.status,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S')
         }
 
 # Initialize database
 with app.app_context():
     db.create_all()
-    
-    # Add sample data if database is empty
-    if Customer.query.count() == 0:
-        sample_customers = [
-            Customer(name='Sample', phone='9840851742', email='', status='Opted In'),
-            Customer(name='Test Customer UI', phone='+15551234556', email='testui@example.com', status='Opted In'),
-            Customer(name='Integration Test Customer', phone='+15559876554', email='integration@test.com', status='Opted In'),
-            Customer(name='Sample User', phone='+919840851742', email='', status='Opted In')
-        ]
-        for customer in sample_customers:
-            db.session.add(customer)
-        
-        sample_campaigns = [
-            Campaign(name='testing', description='t', status='failed'),
-            Campaign(name='Test 2', description='Sample Test', status='failed'),
-            Campaign(name='Integration Test Campaign', description='Testing integration', status='completed')
-        ]
-        for campaign in sample_campaigns:
-            db.session.add(campaign)
-        
-        db.session.commit()
 
 def allowed_file(filename, file_type):
     """Check if file extension is allowed"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS[file_type]
+
+def normalize_phone_to_digits(phone):
+    """Return phone digits only. Caller should ensure country code is present when needed."""
+    if not phone:
+        return ''
+    s = ''.join(ch for ch in str(phone) if ch.isdigit())
+    return s
 
 class ProgressTracker:
     """Custom progress tracker that integrates with WhatsAppBulkSender"""
@@ -160,12 +211,13 @@ class ProgressTracker:
         self.failure_count += 1
         current_progress['failure_count'] = self.failure_count
 
+
 class WhatsAppBulkSenderAPI(WhatsAppBulkSender):
     """Extended WhatsApp sender with API progress tracking"""
     
-    def __init__(self, progress_tracker):
+    def __init__(self, progress_tracker=None):
         super().__init__()
-        self.tracker = progress_tracker
+        self.tracker = progress_tracker if progress_tracker else ProgressTracker()
 
     def process_recipients_with_progress(self, recipients, attachment_path=None):
         """Process recipients with real-time progress updates"""
@@ -241,30 +293,227 @@ class WhatsAppBulkSenderAPI(WhatsAppBulkSender):
             f"Process completed! Success: {self.tracker.success_count}, "
             f"Failed: {self.tracker.failure_count}, Duration: {duration}"
         )
-
         return True
 
-def send_messages_async(recipients_file, attachment_file=None):
-    """Asynchronous message sending function"""
-    global current_progress
-    
-    tracker = ProgressTracker()  # Initialize tracker at the beginning
+
+def send_messages_async(recipients_path, attachment_path=None):
+    """Asynchronous message sending function using the global sender instance."""
+    global current_progress, whatsapp_sender
+
     try:
-        current_progress['is_active'] = True
-        sender = WhatsAppBulkSenderAPI(tracker)
+        if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
+            raise Exception("WhatsApp is not connected. Please connect first.")
 
-        # Load recipients
-        tracker.log_message(f"Loading recipients from {recipients_file}")
-        recipients = sender.load_recipient_data(recipients_file)
-        tracker.log_message(f"Loaded {len(recipients)} recipients successfully")
+        # Wait for login confirmation
+        if not whatsapp_sender.wait_for_login():
+            raise Exception("WhatsApp login failed or timed out.")
 
-        # Process recipients
-        sender.process_recipients_with_progress(recipients, attachment_file)
-
+        # Each sending job gets a new tracker.
+        whatsapp_sender.tracker = ProgressTracker()
+        
+        # Load recipients from file
+        recipients_df = pd.read_excel(recipients_path)
+        
+        # Process recipients with progress updates
+        whatsapp_sender.process_recipients_with_progress(recipients_df, attachment_path)
+        
     except Exception as e:
-        tracker.log_message(f"Critical error: {str(e)}", 'error')
+        current_progress['logs'].append(f"[ERROR] {str(e)}")
     finally:
+        # Finalize progress, but DO NOT quit the driver
         current_progress['is_active'] = False
+        current_progress['end_time'] = datetime.now().isoformat()
+
+def process_campaign_async(campaign_id, attachment_path=None):
+    """
+    Background thread worker to process a campaign by id.
+    Uses the global whatsapp_sender instance (WhatsAppBulkSenderAPI).
+    """
+    global whatsapp_sender, current_progress
+
+    with app.app_context():
+        try:
+            # Basic fetch & guard
+            campaign = Campaign.query.get(campaign_id)
+            if not campaign:
+                current_app.logger.error(f"Campaign {campaign_id} not found")
+                return
+
+            # Prevent double-processing: only run queued campaigns
+            if campaign.status not in ('queued', 'scheduled'):
+                current_app.logger.info(f"Campaign {campaign_id} status is {campaign.status}; skipping worker start.")
+                return
+
+            # load recipients
+            recipients = CampaignRecipient.query.filter_by(campaign_id=campaign_id).all()
+            total = len(recipients)
+            #print(total,recipients,"\n\n\n\this is the totalt list \n\n\n\n")
+
+            # initialize progress
+            current_progress.update({
+                'is_active': True,
+                'current': 0,
+                'total': total,
+                'logs': [],
+                'success_count': 0,
+                'failure_count': 0,
+                'start_time': datetime.now().isoformat(),
+                'end_time': None
+            })
+            print("all instance set up done")
+            # ensure sender is initialized
+            if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
+                whatsapp_sender = WhatsAppBulkSenderAPI()
+                try:
+                    whatsapp_sender.initialize_driver()
+                    whatsapp_sender.login_to_whatsapp_with_wait()
+                except Exception as e:
+                    msg = f"WebDriver init failed: {str(e)}"
+                    current_progress['logs'].append(f"[ERROR] {msg}")
+                    current_progress['is_active'] = False
+                    current_app.logger.exception(msg)
+                    return
+
+            # ensure logged in (wait)
+            if not whatsapp_sender.wait_for_login():
+                print("testing login")
+                msg = "WhatsApp login failed or timeout."
+                current_progress['logs'].append(f"[ERROR] {msg}")
+                current_progress['is_active'] = False
+                current_app.logger.error(msg)
+                return
+            print("login was sucess")
+            # mark campaign running
+            campaign.status = 'running'
+            db.session.commit()
+
+            # iterate recipients one-by-one (DB-driven)
+            idx = 0
+            for r in recipients:
+                # check for cancel request
+                #print("recipets:                ",r,"\n\n\n")
+                db.session.refresh(campaign)
+                if campaign.status == 'cancel_requested':
+                    campaign.status = 'cancelled'
+                    db.session.commit()
+                    current_progress['logs'].append(f"Campaign {campaign_id} cancelled by user.")
+                    break
+
+                idx += 1
+                customer = Customer.query.get(r.customer_id)
+                if not customer:
+                    r.status = 'failed'
+                    r.last_error = 'Customer not found'
+                    r.attempts = (r.attempts or 0) + 1
+                    r.updated_at = datetime.now()
+                    db.session.commit()
+                    current_progress['failure_count'] += 1
+                    current_progress['current'] = idx
+                    current_progress['logs'].append(f"[{idx}/{total}] Customer {r.customer_id} not found")
+                    continue
+
+                raw_phone = customer.phone
+                phone = normalize_phone_to_digits(raw_phone)
+                message = campaign.message or ''
+
+                current_progress['logs'].append(f"[{idx}/{total}] Sending to {phone}")
+                current_progress['current'] = idx
+
+                success = False
+                last_err = None
+                attempts = 0
+                max_retries = int(getattr(whatsapp_sender, 'config', {}).get('max_retries', 2))
+
+                # Quick phone validation (basic)
+                if not phone or len(phone) < 8:
+                    last_err = "Invalid phone number"
+                    attempts = (r.attempts or 0) + 1
+                    r.attempts = attempts
+                    r.last_error = last_err
+                    r.status = 'failed'
+                    r.updated_at = datetime.now()
+                    db.session.commit()
+                    current_progress['failure_count'] += 1
+                    current_progress['logs'].append(f"[{idx}/{total}] Invalid phone for customer {customer.id}")
+                    # short sleep and continue
+                    time.sleep(0.5)
+                    continue
+                print("max apptemps",max_retries)
+                # perform attempts with backoff
+                for attempt in range(1, max_retries + 1):
+                    attempts = attempt
+                    try:
+                        ok = whatsapp_sender.send_message(phone, message, attachment_path)
+                        if ok:
+                            success = True
+                            break
+                        else:
+                            last_err = 'send_message returned False'
+                    except Exception as e:
+                        last_err = str(e)
+                        current_app.logger.exception(f"Error sending to {phone}: {e}")
+
+                    # small backoff before next retry
+                    time.sleep(int(getattr(whatsapp_sender, 'config', {}).get('delay_between_messages', 1.5)))
+
+                # update recipient row
+                r.attempts = (r.attempts or 0) + attempts
+                r.last_error = last_err
+                r.updated_at = datetime.now()
+
+                if success:
+                    r.status = 'sent'
+                    r.sent_at = datetime.now()
+                    current_progress['success_count'] += 1
+                    current_progress['logs'].append(f"[{idx}/{total}] ✓ Sent to {phone}")
+                else:
+                    r.status = 'failed'
+                    current_progress['failure_count'] += 1
+                    current_progress['logs'].append(f"[{idx}/{total}] ✗ Failed for {phone}: {last_err}")
+
+                db.session.commit()
+
+                # update campaign counters incrementally (safe approach)
+                campaign.sent_count = CampaignRecipient.query.filter_by(campaign_id=campaign_id, status='sent').count()
+                campaign.failed_count = CampaignRecipient.query.filter_by(campaign_id=campaign_id, status='failed').count()
+                db.session.commit()
+
+                # human-like jitter
+                time.sleep(int(getattr(whatsapp_sender, 'config', {}).get('delay_between_messages', 1.5)) + 0.3)
+
+            # finalize campaign status if not cancelled
+            if campaign.status != 'cancelled':
+                sent = campaign.sent_count or 0
+                failed = campaign.failed_count or 0
+                if total == 0:
+                    campaign.status = 'failed'
+                elif sent == total:
+                    campaign.status = 'completed'
+                elif sent > 0:
+                    campaign.status = 'partial_failed'
+                else:
+                    campaign.status = 'failed'
+                campaign.updated_at = datetime.now()
+                db.session.commit()
+
+            # finalize current_progress
+            current_progress['is_active'] = False
+            current_progress['end_time'] = datetime.now().isoformat()
+            current_progress['logs'].append(
+                f"Campaign {campaign_id} finished. Sent: {campaign.sent_count}, Failed: {campaign.failed_count}"
+            )
+
+        except Exception as ex:
+            current_app.logger.exception("Worker exception")
+            current_progress['logs'].append(f"[ERROR] Worker exception: {str(ex)}")
+            current_progress['is_active'] = False
+            try:
+                campaign = Campaign.query.get(campaign_id)
+                if campaign:
+                    campaign.status = 'failed'
+                    db.session.commit()
+            except Exception:
+                pass
 
 # Dashboard Routes
 @app.route('/')
@@ -499,13 +748,16 @@ def upload_customers():
     """Upload customers from Excel file"""
     try:
         if 'file' not in request.files:
+            print("file issue")
             return jsonify({'error': 'No file provided'}), 400
         
         file = request.files['file']
         if file.filename == '':
+            print(" file issue 2")
             return jsonify({'error': 'No file selected'}), 400
         
         if not allowed_file(file.filename, 'recipients'):
+            print("123")
             return jsonify({'error': 'Invalid file format. Please upload Excel files only.'}), 400
         
         # Save file
@@ -515,20 +767,23 @@ def upload_customers():
         
         # Read Excel file
         df = pd.read_excel(filepath)
-        
+        print(df.head(1))
         # Validate columns
-        required_columns = ['Name', 'Phone']
+        required_columns = ['Name', 'Contact']
         missing_columns = [col for col in required_columns if col not in df.columns]
+        print(missing_columns)
         if missing_columns:
+            print("missing col")
             return jsonify({'error': f'Missing required columns: {", ".join(missing_columns)}'}), 400
         
         added_customers = []
         errors = []
-        
+        print("congrats u came till here")
+
         for index, row in df.iterrows():
             try:
                 name = str(row['Name']).strip()
-                phone = str(row['Phone']).strip()
+                phone = str(row['Contact']).strip()
                 email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
                 
                 if not name or not phone:
@@ -540,22 +795,26 @@ def upload_customers():
                 if existing:
                     errors.append(f'Row {index + 2}: Customer with phone {phone} already exists')
                     continue
-                
+                print("hi")
                 customer = Customer(name=name, phone=phone, email=email)
+                print("hi2")
                 db.session.add(customer)
-                added_customers.append(customer.to_dict())
+                print("")
+                added_customers.append(customer)
+                print("this is the end",add_customer)
                 
             except Exception as e:
+                print("here")
+                print(e)
                 errors.append(f'Row {index + 2}: {str(e)}')
-        
+        print("loop done")
         db.session.commit()
         
         # Clean up uploaded file
-        os.remove(filepath)
+        #os.remove(filepath)
         
         return jsonify({
             'message': f'Successfully added {len(added_customers)} customers',
-            'added_customers': added_customers,
             'errors': errors
         })
         
@@ -564,32 +823,151 @@ def upload_customers():
         return jsonify({'error': f'Failed to process file: {str(e)}'}), 500
 
 # Campaign Management API Endpoints
-@app.route('/api/campaigns', methods=['POST'])
-def create_campaign():
-    """Create a new campaign"""
+
+def create_campaign(status=None):
+    content_type = (request.content_type or '').lower()
+    attachment_path = None
+    recipients_list = []
+    scheduled_date_str = None
+
+    # --- Part 1: Get data from the request ---
+        
+    if content_type.startswith('multipart/form-data'):
+        # Form-data request
+        data = request.form
+        name = data.get('name')
+        message = data.get('message')
+        description = data.get('description', '')
+        file = request.files.get('attachment')
+        scheduled_date_str = data.get('scheduled_date') 
+        recipients_list = json.loads(data.get('recipients', '[]'))
+        status = status or data.get('status') or ('scheduled' if scheduled_date_str else 'queued')
+            
+    else: # This path is for JSON requests like 'Save as Draft'
+        data = request.get_json(force=True)
+        name = data.get('name')
+        message = data.get('message')
+        description = data.get('description', '')
+        status = status or data.get('status')
+        recipients_list = data.get('recipients', [])
+        file = None
+
+    # --- Part 2: Validate the data ---
+
+    if not name or not message:
+        raise ValueError({'error': 'Campaign name and message are required'})
+
+    if not recipients_list:
+        raise ValueError({'error': 'Recipients list is required'})
+
+    # ---Part 4: Save attachment (if provided)---
+    
+    # --- Part 3: Build the database objects (without committing) ---
     try:
-        data = request.get_json()
-        
-        # Validate required fields
-        if not data.get('name') or not data.get('message'):
-            return jsonify({'error': 'Campaign name and message are required'}), 400
-        
-        # Create new campaign
         campaign = Campaign(
-            name=data['name'],
-            description=data.get('description', ''),
-            message=data['message'],
-            status='draft'
+            name=name,
+            description=description,
+            message=message,
+            status=status,
+            created_at=datetime.now(),
+            scheduled_at=datetime.fromisoformat(scheduled_date_str) if scheduled_date_str else None,
+            attachment_path=attachment_path
         )
+    except Exception as e:
+        raise ValueError(f"Failed to create campaign: {str(e)}")
+
+    db.session.add(campaign)
+    db.session.flush()  # to get campaign ID before adding recipients
+
+    for rid in recipients_list:
+        cid = int(rid)
+        cust = Customer.query.get(cid)
+        if cust:
+            cr = CampaignRecipient(
+                campaign_id=campaign.id,
+                customer_id=cid,
+                status='pending',
+                recipient_name=cust.name,  # <-- Add the customer's name
+                recipient_phone=cust.phone  # <-- Add the customer's phone
+            )
+            db.session.add(cr)
+    
+    if file and file.filename != '':
+        if not allowed_file(file.filename, 'attachments'):
+            raise ValueError({'error': 'Attachment type not allowed'})
         
-        db.session.add(campaign)
+        filename = secure_filename(f"{campaign.id}_{file.filename}")
+        saved_path = os.path.join(UPLOAD_FOLDER, filename)
+        print("LOCATion were the files gets saved",saved_path)
+        file.save(saved_path)
+        if hasattr(campaign, 'attachment'):
+            campaign.attachment = filename
+        attachment_path=saved_path
+            
+    return campaign, attachment_path
+
+def schedule_campaign_job(campaign_id, attachment_path):
+    """Adds a campaign sending task to the scheduler's job list."""
+    with app.app_context():
+        campaign = Campaign.query.get(campaign_id)
+        if not campaign or not campaign.scheduled_at:
+            return
+
+        # Use a unique ID for the job so we can manage it later if needed
+        job_id = f'campaign__{campaign.id}'
+        
+        print(f"Scheduling job {job_id} for {campaign.scheduled_at}")
+        
+        scheduler.add_job(
+            id=job_id,
+            func=process_campaign_async, # The worker function to run
+            trigger='date',              # Run only once on a specific date
+            run_date=campaign.scheduled_at,
+            args=[campaign.id, attachment_path],
+            replace_existing=True        # Overwrite if a job with this ID already exists
+        )
+
+
+@app.route('/api/campaigns/draft', methods=['POST'])
+def save_campaign_draft():
+    """API endpoints to ONLY save a campaign as a draft"""
+    try:
+        create_campaign('draft')
         db.session.commit()
-        
-        return jsonify({'message': 'Campaign created successfully', 'campaign': campaign.to_dict()}), 201
-        
+        return jsonify({'message': 'Campaign draft saved successfully'}), 201
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': f'Failed to create campaign: {str(e)}'}), 500
+        current_app.logger.exception("Failed to save campaign draft")
+        return jsonify({'error': f'Failed to save campaign draft: {str(e)}'}), 500
+
+@app.route('/api/campaigns/send', methods=['POST'])
+def send_campaign():
+    """
+    API endpoint to either queue a campaign for immediate sending 
+    or schedule it for a future time.
+    """
+    try:
+        print("1.",request.form)
+        status_from_request = request.form.get('status', 'queued')
+        campaign, attachment_path = create_campaign(status_from_request)
+        print("2.",campaign,"ATTACHMENT PATH:",attachment_path)
+        db.session.commit()
+
+        if campaign.status == 'queued':
+            thread = threading.Thread(target=process_campaign_async, args=(campaign.id, attachment_path))
+            thread.daemon = True
+            thread.start()
+        elif campaign.status == 'scheduled':
+            # ADD THIS: Use the scheduler for 'scheduled' status
+            schedule_campaign_job(campaign.id, attachment_path)
+
+        return jsonify({'message': 'Campaign sent successfully', 'campaign': campaign.to_dict()}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("Failed to send campaign")
+        return jsonify({'error': f'Failed to send campaign: {str(e)}'}), 500
+
 
 @app.route('/api/campaigns/<int:campaign_id>', methods=['GET'])
 def get_campaign(campaign_id):
@@ -609,150 +987,123 @@ def delete_campaign(campaign_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to delete campaign: {str(e)}'}), 500
+    
 
-@app.route('/api/campaigns/<int:campaign_id>/duplicate', methods=['POST'])
+@app.route('/api/campaigns/<int:campaign_id>/duplicate', methods=['GET'])
 def duplicate_campaign(campaign_id):
-    """Duplicate a campaign"""
+    """Retrive a single campaign DATA"""
     try:
         original = Campaign.query.get_or_404(campaign_id)
-        
-        duplicate = Campaign(
-            name=f"{original.name} (Copy)",
-            description=original.description,
-            message=original.message,
-            status='draft'
-        )
-        
-        db.session.add(duplicate)
-        db.session.commit()
-        
-        return jsonify({'message': 'Campaign duplicated successfully', 'campaign': duplicate.to_dict()}), 201
-        
+        print("this is duplicates data",original)
+        return jsonify(original.to_dict()),200
+    
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to duplicate campaign: {str(e)}'}), 500
 
+@app.route('/api/campaigns/<int:campaign_id>/cancel', methods=['POST'])
+def cancel_campaign(campaign_id):
+    try:
+        campaign = Campaign.query.get_or_404(campaign_id)
+        # only allow cancel when queued or running
+        if campaign.status not in ('queued', 'running', 'scheduled'):
+            return jsonify({'error': f'Cannot cancel campaign in state {campaign.status}'}), 400
+        campaign.status = 'cancel_requested'
+        db.session.commit()
+        return jsonify({'message': 'Cancel requested'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to request cancel: {str(e)}'}), 500
+
+
 # QR Code API
 @app.route('/api/whatsapp/qr', methods=['GET'])
 def get_qr_code():
-    """Get QR code from WhatsApp Web using proper WebDriver initialization"""
+    """Get QR code from WhatsApp Web, keeping the browser session alive."""
+    global whatsapp_sender
+    print("api call for qr code")
+
     try:
-        from whatsapp_sender.sender import WhatsAppBulkSender
-        
-        sender = WhatsAppBulkSender()
-        
-        # Initialize WebDriver
-        try:
-            sender.initialize_driver()
+        # Initialize sender if it doesn't exist or driver is not running
+        if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
+            whatsapp_sender = WhatsAppBulkSenderAPI()
+            whatsapp_sender.initialize_driver()
             print("Chrome WebDriver initialized successfully for QR capture")
-        except Exception as e:
-            print(f"Failed to initialize WebDriver: {str(e)}")
+
+        # Capture QR code
+        qr_result = whatsapp_sender.capture_qr_code()
+
+        if qr_result == "already_connected":
+            print("WhatsApp Web already connected")
             return jsonify({
-                'success': False,
-                'message': f'WebDriver initialization failed: {str(e)}',
+                'success': True,
+                'already_connected': True,
+                'message': 'WhatsApp Web is already connected.',
                 'timestamp': datetime.now().isoformat()
             })
-        
-        # Capture QR code using the new method
-        try:
-            qr_result = sender.capture_qr_code()
-            
-            if qr_result == "already_connected":
-                print("WhatsApp Web already connected")
-                return jsonify({
-                    'success': True,
-                    'already_connected': True,
-                    'message': 'WhatsApp Web is already connected - no QR code needed',
-                    'timestamp': datetime.now().isoformat()
-                })
-            elif qr_result:
-                print("QR code captured successfully")
-                return jsonify({
-                    'success': True,
-                    'qr_code': qr_result,
-                    'message': 'QR code captured successfully',
-                    'timestamp': datetime.now().isoformat()
-                })
-            else:
-                print("QR code capture failed")
-                return jsonify({
-                    'success': False,
-                    'message': 'Could not capture QR code - please try again',
-                    'timestamp': datetime.now().isoformat()
-                })
-                
-        except Exception as e:
-            print(f"QR code capture error: {str(e)}")
+        elif qr_result:
+            print("QR code captured successfully")
+            # The browser is intentionally left open for the user to scan
             return jsonify({
-                'success': False,
-                'message': f'QR capture failed: {str(e)}',
+                'success': True,
+                'qr_code': qr_result,
+                'message': 'Scan the QR code in the new browser window.',
                 'timestamp': datetime.now().isoformat()
             })
-        finally:
-            if hasattr(sender, 'driver') and sender.driver:
-                sender.driver.quit()
-        
+        else:
+            print("QR code capture failed")
+            return jsonify({
+                'success': False,
+                'message': 'Could not capture QR code. Please try again.',
+                'timestamp': datetime.now().isoformat()
+            })
+
     except Exception as e:
+        print(f"Error in get_qr_code: {str(e)}")
+        # Ensure driver is closed on failure
+        if whatsapp_sender:
+            whatsapp_sender.quit_driver()
+            whatsapp_sender = None
         return jsonify({
             'success': False,
-            'message': f'Failed to initialize QR code capture: {str(e)}',
+            'message': f'An error occurred: {str(e)}',
             'timestamp': datetime.now().isoformat()
         })
 
 # WhatsApp Connection API
 @app.route('/api/whatsapp/status', methods=['GET'])
 def get_whatsapp_status():
-    """Check WhatsApp connection status using proper WebDriver initialization"""
+    """Check WhatsApp connection status using the global sender instance."""
+    global whatsapp_sender
+    if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
+        # whatsapp_sender = WhatsAppBulkSenderAPI()
+        # whatsapp_sender.initialize_driver()
+        # print("\n\\n\n\n\n\Chrome WebDriver initialized successfully (in status api)\n\n\n\n")
+
+        print("this is the error")
+        return jsonify({
+            'connected': False,
+            'status': 'disconnected',
+            'message': 'Not connected. Please get QR code first.',
+            'timestamp': datetime.now().isoformat()
+        })
+
     try:
-        from whatsapp_sender.sender import WhatsAppBulkSender
-        
-        sender = WhatsAppBulkSender()
-        
-        # Initialize WebDriver
-        try:
-            sender.initialize_driver()
-            print("Chrome WebDriver initialized successfully")
-        except Exception as e:
-            print(f"Failed to initialize WebDriver: {str(e)}")
-            return jsonify({
-                'connected': False,
-                'status': 'error',
-                'message': f'WebDriver initialization failed: {str(e)}',
-                'timestamp': datetime.now().isoformat()
-            })
-        
-        # Check WhatsApp login status
-        try:
-            if sender.login_to_whatsapp():
-                print("Successfully logged into WhatsApp Web")
-                status = {
-                    'connected': True,
-                    'status': 'connected',
-                    'message': 'WhatsApp Web is connected and ready',
-                    'timestamp': datetime.now().isoformat()
-                }
-            else:
-                print("QR code scan required")
-                status = {
-                    'connected': False,
-                    'status': 'qr_required',
-                    'message': 'QR code scan required to connect',
-                    'timestamp': datetime.now().isoformat()
-                }
-        except Exception as e:
-            print(f"WhatsApp login check error: {str(e)}")
+        if whatsapp_sender.get_connection_status():
             status = {
-                'connected': False,
-                'status': 'error',
-                'message': f'Login check failed: {str(e)}',
+                'connected': True,
+                'status': 'connected',
+                'message': 'WhatsApp is connected and ready.',
                 'timestamp': datetime.now().isoformat()
             }
-        finally:
-            if hasattr(sender, 'driver') and sender.driver:
-                sender.driver.quit()
-        
+        else:
+            status = {
+                'connected': False,
+                'status': 'qr_required',
+                'message': 'QR code scan required to connect',
+                'timestamp': datetime.now().isoformat()
+            }
         return jsonify(status)
-        
     except Exception as e:
         return jsonify({
             'connected': False,
@@ -776,7 +1127,6 @@ def get_real_analytics():
         active_campaigns = Campaign.query.filter_by(status='active').count()
         
         # Get customer status distribution
-        opted_out_customers = Customer.query.filter_by(status='Opted Out').count()
         pending_customers = Customer.query.filter_by(status='Pending').count()
         
         # Get recent campaigns
@@ -785,7 +1135,7 @@ def get_real_analytics():
         analytics_data = {
             'total_customers': total_customers,
             'opted_in_customers': opted_in_customers,
-            'opted_out_customers': opted_out_customers,
+
             'pending_customers': pending_customers,
             'total_campaigns': total_campaigns,
             'draft_campaigns': draft_campaigns,
@@ -814,22 +1164,106 @@ def get_settings():
     """Get current settings"""
     return jsonify(CONFIG)
 
-@app.route('/api/settings', methods=['POST'])
-def update_settings():
-    """Update settings"""
+#upadteing profile vasl
+@app.route('/api/settings/profile', methods=['POST'])
+def update_settings_profile():
+    """
+    Updates the settings by writing the changes to config.py.
+    """
     try:
         data = request.get_json()
         
-        # Update CONFIG values
-        for key, value in data.items():
-            if key in CONFIG:
-                CONFIG[key] = value
+        user_data_dir = data.get('user_data_dir')
+        profile_name = data.get('profile_name')
         
-        return jsonify({'message': 'Settings updated successfully', 'config': CONFIG})
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to update settings: {str(e)}'}), 500
+        if not user_data_dir or not profile_name:
+            return jsonify({'error': 'Missing user_data_dir or profile_name in request'}), 400
 
+        # Path to the config file
+        config_file_path = os.path.join(os.path.dirname(__file__), 'whatsapp_sender/config.py')
+
+        # Read the current content of the config file
+        with open(config_file_path, 'r') as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            # Replace the old 'user_data_dir' line with the new value
+            if line.strip().startswith("'user_data_dir':"):
+                new_lines.append(f"    'user_data_dir': os.getenv('CHROME_USER_DATA_DIR', r'{user_data_dir}'),\n")
+            # Replace the old 'profile_name' line with the new value
+            elif line.strip().startswith("'profile_name':"):
+                new_lines.append(f"    'profile_name': os.getenv('CHROME_PROFILE_NAME', '{profile_name}'),\n")
+            else:
+                new_lines.append(line)
+
+        # Write the updated content back to the file
+        with open(config_file_path, 'w') as f:
+            f.writelines(new_lines)
+            
+        # Optional: Reload the config in memory for the current session
+        # This part depends on how your app is structured. 
+        # For simplicity, we'll assume the app is restarted or the config is reloaded on next request.
+            
+        return jsonify({'message': 'Settings updated and saved successfully'}), 200
+
+    except Exception as e:
+        print(f"Error updating and saving settings: {e}")
+        return jsonify({'error': 'Failed to update settings permanently'}), 500
+
+#updating webdrive(selenium) vals
+@app.route('/api/settings/websettings', methods=['POST'])
+def update_settings_webdriver():
+    """
+    Updates the settings by writing the changes to config.py.
+    """
+    try:
+        data = request.get_json()
+        
+        max_retries = data.get('max_retries')
+        delay_between_messages = data.get('delay_between_messages')
+        upload_timeout = data.get('upload_timeout')
+        chat_load_timeout = data.get('chat_load_timeout')
+        
+        if not chat_load_timeout or not upload_timeout or not max_retries or not delay_between_messages:
+            return jsonify({'error': 'Missing user_data_dir or profile_name in request'}), 400
+
+        # Path to the config file
+        config_file_path = os.path.join(os.path.dirname(__file__), 'whatsapp_sender/config.py')
+
+        # Read the current content of the config file
+        with open(config_file_path, 'r') as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            # Replace the old 'user_data_dir' line with the new value
+            if line.strip().startswith("'max_retries':"):
+                new_lines.append(f"    'max_retries': os.getenv('CHROME_USER_DATA_DIR', r'{max_retries}'),\n")
+            # Replace the old 'profile_name' line with the new value
+            elif line.strip().startswith("'delay_between_messages':"):
+                new_lines.append(f"    'delay_between_messages': os.getenv('CHROME_PROFILE_NAME', '{delay_between_messages}'),\n")
+            elif line.strip().startswith("'upload_timeout':"):
+                new_lines.append(f"    'upload_timeout': os.getenv('CHROME_PROFILE_NAME', '{upload_timeout}'),\n")
+            elif line.strip().startswith("'chat_load_timeout':"):
+                new_lines.append(f"    'chat_load_timeout': os.getenv('CHROME_PROFILE_NAME', '{chat_load_timeout}'),\n")
+            else:
+                new_lines.append(line)
+
+        # Write the updated content back to the file
+        with open(config_file_path, 'w') as f:
+            f.writelines(new_lines)
+            
+        # Optional: Reload the config in memory for the current session
+        # This part depends on how your app is structured. 
+        # For simplicity, we'll assume the app is restarted or the config is reloaded on next request.
+            
+        return jsonify({'message': 'Settings updated and saved successfully'}), 200
+
+    except Exception as e:
+        print(f"Error updating and saving settings: {e}")
+        return jsonify({'error': 'Failed to update settings permanently'}), 500
+    
 # Backup and Restore API
 @app.route('/api/backup', methods=['GET'])
 def create_backup():
@@ -925,8 +1359,3 @@ def restore_backup():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to restore backup: {str(e)}'}), 500
-
-if __name__ == '__main__':
-    print("Starting WhatsApp Bulk Sender Multi-Dashboard Application...")
-    print("Access the application at: http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
