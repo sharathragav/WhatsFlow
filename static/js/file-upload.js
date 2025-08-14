@@ -35,7 +35,7 @@ class FileUploadHandler {
             recipientsFile: document.getElementById('recipientsFile'),
             attachmentFile: document.getElementById('attachmentFile'),
             excelFile: document.getElementById('excelFile'), // For modals
-            campaignImage: document.getElementById('campaignImage'),
+            campaignDocument: document.getElementById('campaignDocument'),
             importFile: document.getElementById('importFile')
         };
 
@@ -171,7 +171,7 @@ class FileUploadHandler {
                 allowedTypes = this.options.allowedRecipientTypes;
                 break;
             case 'attachmentFile':
-            case 'campaignImage':
+            case 'campaignDocument':
                 allowedTypes = this.options.allowedAttachmentTypes;
                 break;
             case 'importFile':
@@ -275,7 +275,7 @@ class FileUploadHandler {
             'recipientsFile': 'recipients',
             'attachmentFile': 'attachment',
             'excelFile': 'recipients',
-            'campaignImage': 'attachment'
+            'campaignDocument': 'attachment'
         };
         return typeMap[inputId];
     }
