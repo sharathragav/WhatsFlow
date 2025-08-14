@@ -11,8 +11,33 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from datetime import datetime
 from .config import CONFIG
+import logging
+from selenium.webdriver.remote.remote_connection import LOGGER as seleniumLogger
+
+seleniumLogger.setLevel(logging.WARNING)  # hide Selenium debug logs
+logging.getLogger('urllib3').setLevel(logging.WARNING)  # hide urllib3 debug logs
+
 
 class WhatsAppBulkSender:
+    def is_driver_active(self):
+        """Check if the WebDriver session is active."""
+        try:
+            # A simple command to check if the session is responsive
+            self.driver.title
+            return True
+        except Exception:
+            return False
+
+    def quit_driver(self):
+        """Quit the WebDriver session."""
+        if self.driver:
+            try:
+                self.driver.quit()
+                print("WebDriver session terminated.")
+            except Exception as e:
+                print(f"Error while quitting driver: {e}")
+            finally:
+                self.driver = None
     def __init__(self):
         self.driver = None
         self.config = CONFIG
@@ -34,7 +59,7 @@ class WhatsAppBulkSender:
         if user_data_dir:
             profile_path = os.path.join(user_data_dir, profile_name) if profile_name else user_data_dir
             options.add_argument(f'--user-data-dir={profile_path}')
-            print(f"Using Chrome profile: {profile_path}")
+            #print(f"Using Chrome profile: {profile_path}")
         
         # Existing performance options
         options.add_argument('--disable-dev-shm-usage')
@@ -50,24 +75,19 @@ class WhatsAppBulkSender:
         self.driver = webdriver.Chrome(service=service, options=options)
         print("Chrome WebDriver initialized with persistent session support.")
 
-    def login_to_whatsapp(self):
-        """Check WhatsApp login status"""
-        if not self.driver:
-            print("WebDriver not initialized")
+    def get_connection_status(self):
+        """Check the current connection status of WhatsApp Web."""
+        """Check the current connection status of WhatsApp Web."""
+        if not self.is_driver_active():
             return False
-            
-        print("Checking existing WhatsApp session...")
-        self.driver.get('https://web.whatsapp.com')
-        
-        # Check if already logged in
+
         try:
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@id="pane-side"]'))
-            )
-            print("Using existing WhatsApp session")
+            # Check for a key element that indicates a logged-in state
+            self.driver.find_element(By.XPATH, '//div[@id="pane-side"]')
             return True
-        except TimeoutException:
-            print("Session not found - QR code scan required")
+        except NoSuchElementException:
+            return False
+        except Exception:
             return False
     
     def capture_qr_code(self):
@@ -82,10 +102,10 @@ class WhatsAppBulkSender:
             
             # Wait for QR code to appear
             try:
-                qr_element = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="qr-code"]'))
+                qr_element = WebDriverWait(self.driver, 20).until(
+                    EC.presence_of_element_located((By.XPATH, '//canvas'))
                 )
-                print("QR code found, capturing screenshot...")
+                print("QR code found, capturing screenshot...............................")
                 
                 # Take screenshot of QR code area
                 import base64
@@ -99,7 +119,7 @@ class WhatsAppBulkSender:
                 qr_base64 = base64.b64encode(qr_screenshot).decode('utf-8')
                 qr_data_url = f"data:image/png;base64,{qr_base64}"
                 
-                print("QR code captured successfully")
+                print("\n\n\nQR code captured successfully...................")
                 return qr_data_url
                 
             except TimeoutException:
@@ -117,7 +137,26 @@ class WhatsAppBulkSender:
         except Exception as e:
             print(f"Error capturing QR code: {str(e)}")
             return None
-    
+    def wait_for_login(self):
+         """
+        Wait dynamically until WhatsApp Web finishes loading and user is logged in.
+        
+        Returns:
+            bool: True if logged in, False otherwise.
+        """
+         try:
+            wait = WebDriverWait(self.driver, 200)
+
+            # Step 1: Wait for <progress> to disappear (page done loading)
+            wait.until(EC.invisibility_of_element_located((By.XPATH, '//progress')))
+
+            # Step 2: Wait for chat list to appear (logged in)
+            wait.until(EC.presence_of_element_located((By.ID, 'pane-side')))
+
+            return True
+         except:
+                print("why the fuk")
+                return False
     def login_to_whatsapp_with_wait(self):
         """Original login method with QR scan wait"""
         if not self.driver:
@@ -216,7 +255,7 @@ class WhatsAppBulkSender:
                     return False
             try:
                 WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, '//span[@aria-label=" Delivered " and @data-icon="msg-dblcheck"]'))
+                    EC.presence_of_element_located((By.XPATH, '//div[@role="textbox" and @contenteditable="true" and @aria-label="Type a message"]'))
                 )
                 print(f"✓ Message sent successfully to {contact}")
                 return True
@@ -256,10 +295,10 @@ class WhatsAppBulkSender:
                 caption_box = self.driver.find_element(
                     By.XPATH, '//div[@role="textbox" and @contenteditable="true" and @aria-label="Add a caption"]')
                 caption_box.send_keys(caption)
-
+            print("till caption box no issue")
             send_btn = self.driver.find_element(By.XPATH,"//div[@role='button' and @aria-label='Send']")
             send_btn.click()
-            time.sleep(self.config['delay_between_messages'])
+            time.sleep(int(self.config['delay_between_messages']))
             return True
 
         except Exception as e:
@@ -278,14 +317,15 @@ class WhatsAppBulkSender:
 
             text_box.send_keys(Keys.CONTROL + "a")
             text_box.send_keys(Keys.DELETE)
-
+            print("text area cleared")
             lines = message.split('\n')
             for line in lines[:-1]:
                 text_box.send_keys(line)
                 text_box.send_keys(Keys.SHIFT + Keys.ENTER)
             text_box.send_keys(lines[-1])
             text_box.send_keys(Keys.ENTER)
-            time.sleep(self.config['delay_between_messages'])
+            #print(type(self.config['delay_between_messages']),"type of delay between message ")
+            time.sleep(int(self.config['delay_between_messages']))
             return True
 
         except Exception as e:
