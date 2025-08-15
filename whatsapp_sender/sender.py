@@ -77,7 +77,6 @@ class WhatsAppBulkSender:
 
     def get_connection_status(self):
         """Check the current connection status of WhatsApp Web."""
-        """Check the current connection status of WhatsApp Web."""
         if not self.is_driver_active():
             return False
 
