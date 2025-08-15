@@ -49,6 +49,24 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):
 jobstores = {'default': SQLAlchemyJobStore(url=app.config['SQLALCHEMY_DATABASE_URI'])}
 scheduler = BackgroundScheduler(jobstores=jobstores)
 
+# --- ADD THIS CODE BLOCK ---
+def start_scheduler():
+    """
+    Starts the APScheduler, ensuring it only runs in the main process,
+    avoiding conflicts with the Flask reloader.
+    """
+    if app.debug and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        # In debug mode, this function will be called twice. We want to start
+        # the scheduler only in the child process (the one that runs the app).
+        return
+    
+    if not scheduler.running:
+        scheduler.start()
+        app.logger.info("APScheduler started successfully.")
+
+# Call the function to start the scheduler
+start_scheduler()
+
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {
@@ -911,21 +929,25 @@ def schedule_campaign_job(campaign_id, attachment_path):
     with app.app_context():
         campaign = Campaign.query.get(campaign_id)
         if not campaign or not campaign.scheduled_at:
+            app.logger.warning(f"Could not schedule campaign {campaign_id}: Campaign not found or has no scheduled date.")
             return
 
-        # Use a unique ID for the job so we can manage it later if needed
         job_id = f'campaign__{campaign.id}'
         
-        print(f"Scheduling job {job_id} for {campaign.scheduled_at}")
-        
-        scheduler.add_job(
-            id=job_id,
-            func=process_campaign_async, # The worker function to run
-            trigger='date',              # Run only once on a specific date
-            run_date=campaign.scheduled_at,
-            args=[campaign.id, attachment_path],
-            replace_existing=True        # Overwrite if a job with this ID already exists
-        )
+        try:
+            scheduler.add_job(
+                id=job_id,
+                func=process_campaign_async,
+                trigger='date',
+                run_date=campaign.scheduled_at,
+                args=[campaign.id, attachment_path],
+                replace_existing=True
+            )
+            # Log the successful scheduling of the job
+            app.logger.info(f"Successfully scheduled campaign {campaign_id} with job ID {job_id} to run at {campaign.scheduled_at}.")
+        except Exception as e:
+            # Log any errors that occur during scheduling
+            app.logger.error(f"Failed to schedule campaign {campaign_id}: {e}", exc_info=True)
 
 
 @app.route('/api/campaigns/draft', methods=['POST'])
@@ -1014,7 +1036,19 @@ def cancel_campaign(campaign_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to request cancel: {str(e)}'}), 500
-
+    
+@app.route('/api/scheduler/jobs', methods=['GET']) #campaign schedule job endpoints
+def list_scheduled_jobs():
+    """An endpoint to view all currently scheduled jobs."""
+    jobs_list = []
+    for job in scheduler.get_jobs():
+        jobs_list.append({
+            'id': job.id,
+            'name': job.name,
+            'trigger': str(job.trigger),
+            'next_run_time': str(job.next_run_time)
+        })
+    return jsonify(jobs=jobs_list)
 
 # QR Code API
 @app.route('/api/whatsapp/qr', methods=['GET'])
