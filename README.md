@@ -37,9 +37,7 @@ A comprehensive WhatsApp bulk messaging automation system with a beautiful, resp
 2. **Customer Management** - Import and manage contacts
 3. **Campaign Management** - Create and track campaigns  
 4. **WhatsApp Connection** - Monitor connection status
-5. **Progress Monitoring** - Real-time sending progress
-6. **Analytics** - Performance reports and charts
-7. **Settings** - Configure application preferences
+5. **Settings** - Configure application preferences
 
 ## 🔧 System Requirements
 
