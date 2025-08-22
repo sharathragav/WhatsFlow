@@ -11,11 +11,14 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from datetime import datetime
 from .config import CONFIG
+from .xpath import *
 import logging
-from selenium.webdriver.remote.remote_connection import LOGGER as seleniumLogger
+from pathlib import Path 
+import pyperclip
 
-seleniumLogger.setLevel(logging.WARNING)  # hide Selenium debug logs
-logging.getLogger('urllib3').setLevel(logging.WARNING)  # hide urllib3 debug logs
+# Suppress verbose logging
+logging.getLogger('selenium').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 
 class WhatsAppBulkSender:
@@ -82,7 +85,7 @@ class WhatsAppBulkSender:
 
         try:
             # Check for a key element that indicates a logged-in state
-            self.driver.find_element(By.XPATH, '//div[@id="pane-side"]')
+            self.driver.find_element(By.XPATH, PANE_SIDE_XPATH)
             return True
         except NoSuchElementException:
             return False
@@ -102,7 +105,7 @@ class WhatsAppBulkSender:
             # Wait for QR code to appear
             try:
                 qr_element = WebDriverWait(self.driver, 20).until(
-                    EC.presence_of_element_located((By.XPATH, '//canvas'))
+                    EC.presence_of_element_located((By.XPATH, QR_CODE_XPATH))
                 )
                 print("QR code found, capturing screenshot...............................")
                 
@@ -125,7 +128,7 @@ class WhatsAppBulkSender:
                 # Check if already logged in
                 try:
                     WebDriverWait(self.driver, 3).until(
-                        EC.presence_of_element_located((By.XPATH, '//div[@id="pane-side"]'))
+                        EC.presence_of_element_located((By.XPATH, PANE_SIDE_XPATH))
                     )
                     print("Already logged in - no QR code needed")
                     return "already_connected"
@@ -147,10 +150,10 @@ class WhatsAppBulkSender:
             wait = WebDriverWait(self.driver, 200)
 
             # Step 1: Wait for <progress> to disappear (page done loading)
-            wait.until(EC.invisibility_of_element_located((By.XPATH, '//progress')))
+            wait.until(EC.invisibility_of_element_located((By.XPATH, PROGRESS_PAGE_XPATH)))
 
             # Step 2: Wait for chat list to appear (logged in)
-            wait.until(EC.presence_of_element_located((By.ID, 'pane-side')))
+            wait.until(EC.presence_of_element_located((By.ID, PANE_SIDE_ID)))
 
             return True
          except:
@@ -168,7 +171,7 @@ class WhatsAppBulkSender:
         # Check if already logged in
         try:
             WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@id="pane-side"]'))
+                EC.presence_of_element_located((By.XPATH, PANE_SIDE_XPATH))
             )
             print("Using existing WhatsApp session")
             return True
@@ -179,7 +182,7 @@ class WhatsAppBulkSender:
         print("Please scan QR code. Waiting 2 minutes...")
         try:
             WebDriverWait(self.driver, 120).until(
-                EC.presence_of_element_located((By.ID, 'pane-side'))
+                EC.presence_of_element_located((By.ID, PANE_SIDE_ID))
             )
             print("Login successful via QR scan")
             return True
@@ -230,18 +233,18 @@ class WhatsAppBulkSender:
             wait = WebDriverWait(self.driver, self.config['chat_load_timeout'])
             try:
                 WebDriverWait(self.driver, 15).until(EC.any_of(
-                    EC.presence_of_element_located((By.XPATH, '//div[@role="textbox" and @contenteditable="true" and @aria-label="Type a message"]')),
-                    EC.presence_of_element_located((By.XPATH, '//div[contains(text(), "not on WhatsApp")]'))
+                    EC.presence_of_element_located((By.XPATH, CHAT_INPUT_BOX_XPATH)),
+                    EC.presence_of_element_located((By.XPATH, CHAT_INVALID_NUMBER_XPATH))
                 ))
             except TimeoutException:
                 print("Chat loading timed out, proceeding anyway")
-            invalid_number = self.driver.find_elements(By.XPATH, '//div[contains(text(), "not on WhatsApp")]')
+            invalid_number = self.driver.find_elements(By.XPATH, CHAT_INVALID_NUMBER_XPATH)
             if invalid_number:
                 print(f"Error: {contact} is not registered on WhatsApp")
                 return False
             try:
                 input_box = wait.until(EC.element_to_be_clickable(
-                    (By.XPATH, '//div[@role="textbox" and @contenteditable="true" and @aria-label="Type a message"]')
+                    (By.XPATH, CHAT_INPUT_BOX_XPATH)
                 ))
             except TimeoutException:
                 print("Error: Could not find message input area")
@@ -254,7 +257,7 @@ class WhatsAppBulkSender:
                     return False
             try:
                 WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, '//div[@role="textbox" and @contenteditable="true" and @aria-label="Type a message"]'))
+                    EC.presence_of_element_located((By.XPATH, CHAT_INPUT_BOX_XPATH))
                 )
                 print(f"✓ Message sent successfully to {contact}")
                 return True
@@ -273,29 +276,35 @@ class WhatsAppBulkSender:
             
         try:
             clip_btn = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, '//button[@title="Attach" and @type="button"]'))
+                EC.element_to_be_clickable((By.XPATH, ATTACH_BUTTON_XPATH))
             )
             clip_btn.click()
 
-            file_input = self.driver.find_element(By.XPATH, '//input[@accept="*"]')
+            file_input = self.driver.find_element(By.XPATH, FILE_INPUT_XPATH)
             file_input.send_keys(os.path.abspath(file_path))
             try:
                 WebDriverWait(self.driver, self.config['upload_timeout']).until(
-                    EC.presence_of_element_located((By.XPATH, "//div[@role='button' and @aria-label='Send']"))
+                    EC.presence_of_element_located((By.XPATH, SEND_BUTTON_XPATH))
                 )
             except TimeoutException:
                 print("Error: Attachment upload took too long")
-                self.driver.find_element(By.XPATH,'//div[@role="button" and @aria-label="Close"]').click()
+                self.driver.find_element(By.XPATH,CLOSE_BUTTON_XPATH).click()
                 print("Attachment upload cancelled")
                 return False
             
             ext = os.path.splitext(file_path)[1].lower()
             if ext in ('.jpg', '.jpeg', '.png', '.gif', '.mp4','.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt') and caption:
-                caption_box = self.driver.find_element(
-                    By.XPATH, '//div[@role="textbox" and @contenteditable="true" and @aria-label="Add a caption"]')
-                caption_box.send_keys(caption)
+                try:
+                    caption_box = self.driver.find_element(By.XPATH, CAPTION_BOX_XPATH)
+                    pyperclip.copy(caption)
+                    caption_box.send_keys(Keys.CONTROL + "v")
+
+                except Exception as e:
+                    print(f"Warning: Could not add caption, sending without it. Error: {str(e)}")
+
             print("till caption box no issue")
-            send_btn = self.driver.find_element(By.XPATH,"//div[@role='button' and @aria-label='Send']")
+            
+            send_btn = self.driver.find_element(By.XPATH, SEND_BUTTON_XPATH)
             send_btn.click()
             time.sleep(int(self.config['delay_between_messages']))
             return True
@@ -305,14 +314,15 @@ class WhatsAppBulkSender:
             print(f"Attachment error: {str(e)}")
             return False
 
-    def _send_text_message(self, message):
+    '''def _send_text_message(self, message):
+
         if not self.driver:
             print("WebDriver not initialized")
             return False
             
         try:
             text_box = self.driver.find_element(
-                By.XPATH, '//div[@role="textbox" and @contenteditable="true" and @aria-label="Type a message"]')
+                By.XPATH, CHAT_INPUT_BOX_XPATH)
 
             text_box.send_keys(Keys.CONTROL + "a")
             text_box.send_keys(Keys.DELETE)
@@ -327,6 +337,20 @@ class WhatsAppBulkSender:
             time.sleep(int(self.config['delay_between_messages']))
             return True
 
+        except Exception as e:
+            print(f"Text sending error: {str(e)}")
+            return False'''
+    def _send_text_message(self, message):
+        if not self.driver:
+            print("WebDriver not initialized")
+            return False
+        try:
+            pyperclip.copy(message)
+            text_box = self.driver.find_element(By.XPATH, CHAT_INPUT_BOX_XPATH)
+            text_box.send_keys(Keys.CONTROL + "v")
+            text_box.send_keys(Keys.ENTER)
+            time.sleep(int(self.config['delay_between_messages']))
+            return True
         except Exception as e:
             print(f"Text sending error: {str(e)}")
             return False

@@ -13,9 +13,8 @@ CONFIG = {
     
     # API settings
     'upload_folder': 'uploads',
-    'max_file_size': 16 * 1024 * 1024,  # 16MB max file size
-    
+    'max_file_size': int(os.getenv('MAX_FILE_SIZE_MB', '16')) * 1024 * 1024,
     # Logging
-    'log_level': 'INFO',
+    'log_level': os.getenv('LOG_LEVEL', 'INFO'),
     'log_file': 'whatsapp_sender.log'
 }

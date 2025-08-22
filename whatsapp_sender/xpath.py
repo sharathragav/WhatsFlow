@@ -16,7 +16,7 @@ XPATHS = {
         "close_button": '//div[@role="button" and @aria-label="Close"]'
     }
 }
-
+PANE_SIDE_ID = "pane-side"
 PANE_SIDE_XPATH = XPATHS["login"]["pane_side"]
 QR_CODE_XPATH = XPATHS["login"]["qr_code"]
 PROGRESS_PAGE_XPATH = XPATHS["login"]["progress_page"]
