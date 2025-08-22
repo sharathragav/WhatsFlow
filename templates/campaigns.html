@@ -81,7 +81,7 @@
     </div>
 
     <!-- Campaign History -->
-    <div class="dashboard-card">
+    <div class="dashboard-card mb-4">
         <div class="card-header">
             <h5 class="card-title mb-0">Campaign History</h5>
         </div>
@@ -110,13 +110,13 @@
                             <td>{{ campaign.created_at }}</td>
                             <td>
                                 <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-outline-primary" onclick="viewCampaign({{ campaign.id }})">
+                                    <button class="btn btn-outline-primary" onclick="viewCampaign('{{ campaign.id }}')">
                                         <i class="fas fa-eye"></i>
                                     </button>
-                                    <button class="btn btn-outline-success" onclick="duplicateCampaign({{ campaign.id }})">
+                                    <button class="btn btn-outline-success" onclick="duplicateCampaign('{{ campaign.id }}')">
                                         <i class="fas fa-copy"></i>
                                     </button>
-                                    <button class="btn btn-outline-danger" onclick="deleteCampaign({{ campaign.id }})">
+                                    <button class="btn btn-outline-danger" onclick="deleteCampaign('{{ campaign.id }}')">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
@@ -125,6 +125,87 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Campaign Progress & Live Logs Section -->
+    <div class="dashboard-card" id="progressSection">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-line me-2"></i>Overall Progress & Live Campaign Logs
+                </h5>
+                <div class="d-flex gap-2">
+                    <div class="campaign-status-indicator" id="campaignStatusIndicator">
+                        <span class="badge bg-secondary" id="statusBadge">No Active Campaign</span>
+                    </div>
+                    <button class="btn btn-outline-danger btn-sm" onclick="cancelRunningCampaign()" id="cancelBtn" style="display: none;">
+                        <i class="fas fa-stop me-1"></i>Cancel Campaign
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="clearProgressLogs()" id="clearLogsBtn">
+                        <i class="fas fa-eraser me-1"></i>Clear Logs
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- Campaign Status Banner -->
+            <div class="alert alert-info mb-4" id="campaignBanner" style="display: none;">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <div>
+                        <strong>Active Campaign:</strong> <span id="activeCampaignName">-</span>
+                        <br>
+                        <small class="text-muted">Started: <span id="campaignStartTime">-</span></small>
+                    </div>
+                </div>
+            </div>
+
+            
+
+            <!-- Progress Bar -->
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Overall Progress</h6>
+                    <div class="d-flex align-items-center gap-3">
+                        <span id="progressPercentage" class="badge bg-primary">0%</span>
+                        <small class="text-muted">ETA: <span id="etaTime">--:--</span></small>
+                    </div>
+                </div>
+                <div class="progress" style="height: 25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                         role="progressbar" id="progressBar" style="width: 0%" 
+                         aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Logs -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                    <h6 class="card-title mb-0">
+                        <i class="fas fa-terminal me-2"></i>Live Campaign Logs
+                        <span class="badge bg-success ms-2" id="logCounter">0 entries</span>
+                    </h6>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="autoScroll" checked>
+                            <label class="form-check-label text-white" for="autoScroll">Auto-scroll</label>
+                        </div>
+                        <button class="btn btn-outline-light btn-sm" onclick="exportLogs()">
+                            <i class="fas fa-download me-1"></i>Export
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="logs-container" id="logsContainer" style="height: 350px; overflow-y: auto; background: #1e1e1e; color: #fff; padding: 15px; font-family: 'Courier New', monospace; font-size: 14px;">
+                        <div class="log-entry log-info">
+                            <span class="log-timestamp text-muted">[--:--:--]</span>
+                            <span class="log-message">System ready. No active campaign running.</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -139,8 +220,13 @@
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
 <script>
+let campaignsTable;
+let progressInterval;
+let activeCampaignId = null;
+let isMonitoring = false;
+
 $(document).ready(function() {
-    $('#campaignsTable').DataTable({
+    campaignsTable = $('#campaignsTable').DataTable({
         responsive: true,
         pageLength: 25,
         order: [[3, 'desc']]
@@ -156,6 +242,14 @@ $(document).ready(function() {
         const checked = $('.customer-checkbox:checked').length;
         $('#selectAll').prop('checked', total === checked);
     });
+
+    // Check for any running campaigns on page load
+    //checkForRunningCampaigns();
+    setInterval(()=>{
+    if (!isMonitoring){
+    checkForRunningCampaigns();
+    }},2000);
+
 });
 
 
@@ -164,7 +258,36 @@ function viewCampaign(campaignId) {
     fetch(`/api/campaigns/${campaignId}`)
         .then(response => response.json())
         .then(campaign => {
-            alert(`Campaign Details:\nName: ${campaign.name}\nDescription: ${campaign.description}\nMessage: ${campaign.message}\nStatus: ${campaign.status}\nCreated: ${campaign.created_at}`);
+            
+            // --- START: New Logic ---
+            let displayScheduleDate;
+
+            if (campaign.scheduled_Date) {
+                // 1. If a scheduled date exists, format it into a readable string
+                const date = new Date(campaign.scheduled_Date);
+                displayScheduleDate = date.toLocaleString('en-US', {
+                    year: 'numeric', month: 'long', day: 'numeric',
+                    hour: 'numeric', minute: '2-digit', hour12: true
+                });
+                console.log("Scheduled date found:", displayScheduleDate);
+
+            } else {
+                // 2. If not, use the created_at date and add context
+                displayScheduleDate = `${campaign.created_at}`;
+                console.log("No scheduled date, using created_at:", displayScheduleDate);
+            }
+            // --- END: New Logic ---
+
+            alert(
+                `Campaign Details:\n` +
+                `--------------------\n` +
+                `Name: ${campaign.name}\n` +
+                `Status: ${campaign.status}\n` +
+                `Message: ${campaign.message}\n` +
+                `Scheduled: ${displayScheduleDate}\n` + // Use the new formatted variable
+                `Created at: ${campaign.created_at}`
+            );
+            console.log("Campaign details displayed:", campaign);
         })
         .catch(error => {
             console.error('Error:', error);
@@ -178,7 +301,7 @@ function duplicateCampaign(campaignId) {
         })
         .then(response => {
             if(!response.ok){
-                throw new Error('Didnt get the campangin data')
+                throw new Error('Didnt get he campangin data')
             }
             return response.json()
         })
@@ -198,17 +321,7 @@ function duplicateCampaign(campaignId) {
                 } else {
                     document.getElementById('campaignDate').value = '';
                 }            
-            const selectedCustomers = data.recipients; // Assuming this is an array of customer IDs
-            // document.querySelectorAll('.customer-checkbox').forEach(checkbox => {
-            //     // Check the box if its value (customer ID) is in the selectedCustomers array
-            //     checkbox.checked = selectedCustomers.includes(parseInt(checkbox.value));
-            // });
-            
-            // // Update the form's submit button to reflect 'Update' action
-            // document.getElementById('submitButton').innerHTML = '<i class="fas fa-edit me-1"></i>Update Campaign';
-
-            // // Optional: Scroll to the form to bring it into view
-            // document.getElementById('campaignForm').scrollIntoView({ behavior: 'smooth' });
+            const selectedCustomers = data.recipients;
         
         })
         .catch(error => {
@@ -349,28 +462,18 @@ async function createCampaign() {
 
         alert("Campaign created successfully!");
         
-        //location.reload(); // Refresh the page to show changes
-        refreshCampaigns();
-
-        const intervalId = setInterval(() => {
-            $.ajax({
-                url: '/api/campaigns',
-                method: 'GET',
-                success: function(campaigns) {
-                    // **CORRECTED:** Use the helper function instead of a full reload.
-                    refreshCampaigns();
-
-                    const stillRunning = campaigns.some(c =>
-                        c.status === 'queued' || c.status === 'running' || c.status === 'scheduled'
-                    );
-
-                    if (!stillRunning) {
-                        clearInterval(intervalId);
-                        console.log("All active campaigns have completed. Polling stopped.");
-                    }
-                }
-            });
-        }, 5000);
+        // Clear the form
+        document.getElementById('campaignForm').reset();
+        
+        // If campaign is queued (not scheduled), start monitoring progress
+        if (data.campaign && (data.campaign.status === 'queued' || data.campaign.status === 'running')) {
+            activeCampaignId = data.campaign.id;
+            startProgressMonitoring(data.campaign.id);
+            addLogEntry(`Campaign "${data.campaign.name}" started - monitoring progress...`, 'info');
+        } else {
+            // Just refresh the table for scheduled campaigns
+            refreshCampaignTable();
+        }
 
     } catch (err) {
         // 6. Catch any errors that occurred in the try block
@@ -382,41 +485,335 @@ async function createCampaign() {
         createButton.innerHTML = '<i class="fas fa-rocket me-1"></i>Create & Send Campaign';
     }
 }
-function refreshCampaigns() {
-    // Checks if the DataTable has been initialized
-    if ($.fn.DataTable.isDataTable('#campaignsTable')) {
-        const campaignsTable = $('#campaignsTable').DataTable();
-        
-        // Uses jQuery's ajax to get the latest campaign data
-        $.ajax({
-            url: '/api/campaigns',
-            method: 'GET',
-            success: function(data) {
-                // Clears all existing data from the table
-                campaignsTable.clear();
-                
-                // Loops through the new data and adds each campaign as a new row
-                $.each(data, function(index, campaign) {
-                    campaignsTable.row.add([
-                        campaign.name,
-                        campaign.description,
-                        '<span class="status-badge status-' + campaign.status + '">' + campaign.status + '</span>',
-                        campaign.created_at,
-                        '<div class="btn-group btn-group-sm">' +
-                        '<button class="btn btn-outline-primary" onclick="viewCampaign(' + campaign.id + ')"><i class="fas fa-eye"></i></button>' +
-                        '<button class="btn btn-outline-success" onclick="duplicateCampaign(' + campaign.id + ')"><i class="fas fa-copy"></i></button>' +
-                        '<button class="btn btn-outline-danger" onclick="deleteCampaign(' + campaign.id + ')"><i class="fas fa-trash"></i></button>' +
-                        '</div>'
-                    ]);
-                });
-                
-                // Redraws the table on the page to show the updates
-                campaignsTable.draw(false);
-            },
-            error: function(error) {
-                console.error("Failed to refresh campaign data:", error);
+
+function checkForRunningCampaigns() {
+    // Check if there are any running campaigns
+    fetch('/api/campaigns')
+        .then(response => response.json())
+        .then(campaigns => {
+            console.log(campaigns);
+            const runningCampaign = campaigns.find(c => c.status === 'running' || c.status === 'queued');
+            console.log("active ids",runningCampaign);
+            if (runningCampaign) {
+                activeCampaignId = runningCampaign.id;
+                startProgressMonitoring(runningCampaign.id);
+                addLogEntry(`Resuming monitoring for campaign: ${runningCampaign.name}`, 'info');
             }
-        });
+        })
+        .catch(error => console.error('Error checking for running campaigns:', error));
+}
+
+function startProgressMonitoring(campaignId) {
+    activeCampaignId = campaignId;
+    isMonitoring = true;   // 🚀 set state so background loop pauses
+
+    console.log(activeCampaignId,"in start progeress monitor");
+    // Show cancel button
+    document.getElementById('cancelBtn').style.display = 'inline-block';
+    
+    // Get campaign details for banner
+    fetch(`/api/campaigns/${campaignId}`)
+        .then(response => response.json())
+        .then(campaign => {
+            updateCampaignBanner(campaign.name, new Date().toISOString());
+        })
+        .catch(error => console.error('Error fetching campaign details:', error));
+    
+    // Clear any existing interval
+    if (progressInterval) {
+        clearInterval(progressInterval);
+    }
+    
+    // Start polling for progress
+    progressInterval = setInterval(() => {
+        console.log("polling ");
+        fetchCampaignProgress(campaignId);
+    }, 2000);
+    activeCampaignId=null;
+    addLogEntry(`Started monitoring campaign #${campaignId}...`, 'info');
+}
+
+function stopProgressMonitoring() {
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+    isMonitoring=false;
+    activeCampaignId = null;
+    
+    // Hide cancel button and banner
+    document.getElementById('cancelBtn').style.display = 'none';
+    updateCampaignBanner(null, null);
+    
+    // Update status badge
+    const statusBadge = document.getElementById('statusBadge');
+    statusBadge.textContent = 'Campaign Completed';
+    statusBadge.className = 'badge bg-success';
+    
+    // Refresh the campaign table to show updated status
+    refreshCampaignTable();
+}
+
+async function fetchCampaignProgress(campaignId) {
+    try {
+        const response = await fetch(`/api/campaigns/${campaignId}/progress`);
+        const progress = await response.json();
+        
+        updateProgressDisplay(progress);
+        
+        // Add new logs
+        if (progress.logs && progress.logs.length > 0) {
+            updateLogs(progress.logs);
+        }
+        console.log("insidefetchcampaign",progress.is_active);
+        // If campaign finished, stop monitoring and refresh
+        if (!progress.is_active) {
+            console.log("congrats");
+            setTimeout(() => {
+                stopProgressMonitoring();
+                addLogEntry('Campaign completed! Refreshing campaign history...', 'success');
+                // Automatically refresh campaign history
+                refreshCampaignTable();
+            }, 2000);
+        }
+        
+    } catch (error) {
+        console.error('Error fetching progress:', error);
+        addLogEntry(`Error fetching progress: ${error.message}`, 'error');
+    }
+}
+
+function updateProgressDisplay(progress) {
+    const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+    document.getElementById('progressPercentage').textContent = `${percentage}%`;
+    document.getElementById('progressBar').style.width = `${percentage}%`;
+    document.getElementById('progressBar').setAttribute('aria-valuenow', percentage);
+    
+    // Update progress bar color based on success rate
+    const progressBar = document.getElementById('progressBar');
+    const total_processed = (progress.success_count || 0) + (progress.failure_count || 0);
+    if (total_processed > 0) {
+        const successRate = (progress.success_count || 0) / total_processed;
+        progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated ';
+        if (successRate > 0.8) {
+            progressBar.className += 'bg-success';
+        } else if (successRate > 0.5) {
+            progressBar.className += 'bg-warning';
+        } else {
+            progressBar.className += 'bg-danger';
+        }
+    }
+    
+    // Update status badge
+    const statusBadge = document.getElementById('statusBadge');
+    if (progress.is_active) {
+        statusBadge.textContent = 'Campaign Running';
+        statusBadge.className = 'badge bg-success';
+    } else if (progress.current > 0) {
+        statusBadge.textContent = 'Campaign Completed';
+        statusBadge.className = 'badge bg-info';
+    } else {
+        statusBadge.textContent = 'No Active Campaign';
+        statusBadge.className = 'badge bg-secondary';
+    }
+    
+    // Calculate and display ETA
+    updateETA(progress);
+}
+
+let lastLogCount = 0;
+
+function updateLogs(newLogs) {
+    if (!newLogs || !Array.isArray(newLogs)) return;
+    
+    // Only add new logs (after the last known log count)
+    const logsToAdd = newLogs.slice(lastLogCount);
+    
+    logsToAdd.forEach(logText => {
+        let type = 'info';
+        if (logText.includes('✓') || logText.includes('Success')) type = 'success';
+        if (logText.includes('✗') || logText.includes('Failed') || logText.includes('Error')) type = 'error';
+        if (logText.includes('Warning')) type = 'warning';
+        
+        addLogEntry(logText, type);
+    });
+    
+    lastLogCount = newLogs.length;
+}
+
+function addLogEntry(message, type = 'info') {
+    const logsContainer = document.getElementById('logsContainer');
+    const timestamp = new Date().toLocaleTimeString();
+    
+    // Create log entry with appropriate styling
+    const logEntry = document.createElement('div');
+    logEntry.className = `log-entry log-${type} mb-1`;
+    
+    let iconClass, textClass;
+    switch(type) {
+        case 'success': iconClass = 'fas fa-check-circle text-success'; textClass = 'text-light'; break;
+        case 'error': iconClass = 'fas fa-times-circle text-danger'; textClass = 'text-light'; break;
+        case 'warning': iconClass = 'fas fa-exclamation-triangle text-warning'; textClass = 'text-light'; break;
+        default: iconClass = 'fas fa-info-circle text-info'; textClass = 'text-light';
+    }
+    
+    logEntry.innerHTML = `
+        <div class="d-flex align-items-start">
+            <i class="${iconClass} me-2 mt-1" style="font-size: 12px;"></i>
+            <div class="flex-grow-1">
+                <span class="log-timestamp text-muted small">[${timestamp}]</span>
+                <span class="log-message ${textClass} ms-2">${message}</span>
+            </div>
+        </div>
+    `;
+    
+    logsContainer.appendChild(logEntry);
+    
+    // Update log counter
+    updateLogCounter();
+    
+    // Auto-scroll if enabled
+    if (document.getElementById('autoScroll').checked) {
+        logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+    
+    // Limit log entries to prevent memory issues
+    const logEntries = logsContainer.querySelectorAll('.log-entry');
+    if (logEntries.length > 500) {
+        logsContainer.removeChild(logEntries[0]);
+    }
+}
+
+function refreshCampaignTable() {
+    fetch('/api/campaigns')
+        .then(response => response.json())
+        .then(campaigns => {
+            campaignsTable.clear();
+            campaigns.forEach(campaign => {
+                campaignsTable.row.add([
+                    campaign.name,
+                    campaign.description,
+                    `<span class="status-badge status-${campaign.status}">${campaign.status}</span>`,
+                    campaign.created_at,
+                    `<div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary" onclick="viewCampaign(${campaign.id})">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="btn btn-outline-success" onclick="duplicateCampaign(${campaign.id})">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="deleteCampaign(${campaign.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>`
+                ]);
+            });
+            campaignsTable.draw();
+            addLogEntry('Campaign history refreshed', 'info');
+        })
+        .catch(error => console.error('Error refreshing campaigns:', error));
+}
+
+async function cancelRunningCampaign() {
+    if (!activeCampaignId) return;
+    
+    if (confirm('Are you sure you want to cancel the running campaign?')) {
+        try {
+            const response = await fetch(`/api/campaigns/${activeCampaignId}/cancel`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+                addLogEntry('Campaign cancellation requested...', 'warning');
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (error) {
+            console.error('Error canceling campaign:', error);
+            alert('Failed to cancel campaign');
+        }
+    }
+}
+
+function updateLogCounter() {
+    const logEntries = document.querySelectorAll('#logsContainer .log-entry');
+    const counter = document.getElementById('logCounter');
+    if (counter) {
+        counter.textContent = `${logEntries.length} entries`;
+    }
+}
+
+function clearProgressLogs() {
+    const logsContainer = document.getElementById('logsContainer');
+    logsContainer.innerHTML = '';
+    addLogEntry('Logs cleared by user.', 'info');
+    
+    // Reset progress counters if no active campaign
+    if (!activeCampaignId) {
+        document.getElementById('progressPercentage').textContent = '0%';
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('etaTime').textContent = '--:--';
+    }
+}
+
+function updateETA(progress) {
+    const etaElement = document.getElementById('etaTime');
+    if (!progress.is_active || !progress.current || progress.current === 0) {
+        etaElement.textContent = '--:--';
+        return;
+    }
+    
+    const remaining = progress.total - progress.current;
+    if (remaining <= 0) {
+        etaElement.textContent = '00:00';
+        return;
+    }
+    
+    // Estimate based on current progress (assuming 2 seconds per message average)
+    const avgTimePerMessage = 2; // seconds
+    const estimatedSeconds = remaining * avgTimePerMessage;
+    
+    const minutes = Math.floor(estimatedSeconds / 60);
+    const seconds = estimatedSeconds % 60;
+    etaElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function exportLogs() {
+    const logEntries = document.querySelectorAll('#logsContainer .log-entry');
+    let logText = 'WhatsApp Campaign Logs Export\n';
+    logText += '================================\n';
+    logText += `Exported: ${new Date().toLocaleString()}\n\n`;
+    
+    logEntries.forEach(entry => {
+        const timestamp = entry.querySelector('.log-timestamp')?.textContent || '';
+        const message = entry.querySelector('.log-message')?.textContent || '';
+        logText += `${timestamp} ${message}\n`;
+    });
+    
+    const blob = new Blob([logText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `campaign-logs-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function updateCampaignBanner(campaignName, startTime) {
+    const banner = document.getElementById('campaignBanner');
+    const nameElement = document.getElementById('activeCampaignName');
+    const timeElement = document.getElementById('campaignStartTime');
+    
+    if (campaignName && startTime) {
+        nameElement.textContent = campaignName;
+        timeElement.textContent = new Date(startTime).toLocaleString();
+        banner.style.display = 'block';
+        banner.className = 'alert alert-success mb-4';
+    } else {
+        banner.style.display = 'none';
     }
 }
 

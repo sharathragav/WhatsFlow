@@ -8,16 +8,16 @@
 
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    
+
     <!-- Font Awesome Icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    
+
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+
     <!-- Custom CSS -->
     <link href="{{ url_for('static', filename='css/whatsapp-theme.css') }}" rel="stylesheet">
-    
+
     {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -30,11 +30,11 @@
                 </div>
                 <span class="brand-text ms-2">WhatsApp Marketing</span>
             </a>
-            
+
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            
+
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
@@ -55,16 +55,6 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'campaigns' %}active{% endif %}" href="{{ url_for('campaigns') }}">
                             <i class="fas fa-bullhorn me-1"></i>Campaigns
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'progress' %}active{% endif %}" href="{{ url_for('progress') }}">
-                            <i class="fas fa-chart-line me-1"></i>Progress
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'analytics' %}active{% endif %}" href="{{ url_for('analytics') }}">
-                            <i class="fas fa-chart-bar me-1"></i>Analytics
                         </a>
                     </li>
                     <li class="nav-item">
@@ -91,16 +81,29 @@
                 </div>
             {% endif %}
         {% endwith %}
-        
+
         {% block content %}{% endblock %}
     </main>
 
-    <!-- Bootstrap 5 JS -->
+    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <!-- Custom JS -->
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+
+    <!-- DataTables -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Progress Tracker -->
+    <script src="{{ url_for('static', filename='js/progress-tracker.js') }}"></script>
+
+    <!-- Dashboard JS -->
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-    
+
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

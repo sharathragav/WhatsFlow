@@ -317,10 +317,34 @@ function saveApiSettings() {
         log_level: document.getElementById('logLevel').value
     };
     
-    // In a real application, send this to the backend
-    console.log('Saving API settings:', settings);
-    showToast('API settings saved successfully!', 'success');
-    updateLastConfigUpdate();
+    console.log('Sending API settings to backend:', settings);
+
+    // Send the data to the new Flask endpoint
+    fetch('/api/settings/api', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings)
+    })
+
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(errorData => {
+                throw new Error(errorData.error || 'Server responded with an error');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Server response:', data);
+        showToast('API settings saved successfully!', 'success');
+        updateLastConfigUpdate();
+    })
+    .catch(error => {
+        console.error('Error saving API settings:', error);
+        showToast(`Failed to save settings: ${error.message}`, 'error');
+    });
 }
 
 function testChromeProfile() {
