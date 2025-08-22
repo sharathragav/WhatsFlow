@@ -152,7 +152,7 @@ class WhatsAppDashboard {
             'customergrowth': this.getCustomerGrowthConfig()
         };
         
-        const config = configs[charttype] || this.getDefaultConfig();
+        const config = configs[chartType] || this.getDefaultConfig();
         canvas.chart = new Chart(canvas, config);
     }
 
