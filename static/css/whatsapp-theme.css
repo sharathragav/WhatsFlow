@@ -280,13 +280,11 @@ body {
 
 /* Status Badges */
 .status-badge {
-    display: inline-block;
-    padding: 0.375rem 0.75rem;
+    padding: 4px 8px;
+    border-radius: 12px;
     font-size: 0.75rem;
-    font-weight: 600;
-    border-radius: 50px;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
+    font-weight: 500;
+    text-transform: capitalize;
 }
 
 .status-completed { background: var(--whatsapp-green-light); color: var(--whatsapp-green-dark); }
@@ -390,36 +388,45 @@ body {
 
 /* Logs Container */
 .logs-container {
-    background: #1a1a1a;
-    border-radius: var(--border-radius-sm);
-    padding: 1rem;
-    max-height: 400px;
-    overflow-y: auto;
     font-family: 'Courier New', monospace;
     font-size: 0.875rem;
-    line-height: 1.4;
 }
 
 .log-entry {
-    margin-bottom: 0.5rem;
+    margin-bottom: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
     display: flex;
     align-items: flex-start;
 }
 
 .log-timestamp {
-    color: #888;
+    color: #6c757d;
+    font-weight: bold;
     margin-right: 0.5rem;
     flex-shrink: 0;
 }
 
 .log-message {
+    margin-left: 8px;
     flex: 1;
 }
 
-.log-info .log-message { color: #e0e0e0; }
-.log-success .log-message { color: var(--whatsapp-green); }
-.log-error .log-message { color: var(--whatsapp-red); }
-.log-warning .log-message { color: var(--whatsapp-yellow); }
+.log-info .log-message {
+    color: #495057;
+}
+
+.log-success .log-message {
+    color: #28a745;
+}
+
+.log-error .log-message {
+    color: #dc3545;
+}
+
+.log-warning .log-message {
+    color: #ffc107;
+}
 
 /* Connection Status */
 .connection-status {
@@ -589,24 +596,24 @@ body {
         text-align: center;
         padding: 2rem 1rem;
     }
-    
+
     .hero-title {
         font-size: 2rem;
     }
-    
+
     .hero-image {
         margin-top: 1rem;
         max-width: 250px;
     }
-    
+
     .stat-card {
         margin-bottom: 1rem;
     }
-    
+
     .navbar-nav {
         margin-top: 1rem;
     }
-    
+
     .dashboard-card .card-body {
         padding: 1rem;
     }
@@ -616,15 +623,15 @@ body {
     .hero-title {
         font-size: 1.75rem;
     }
-    
+
     .hero-subtitle {
         font-size: 1rem;
     }
-    
+
     .stat-number {
         font-size: 1.5rem;
     }
-    
+
     .logs-container {
         font-size: 0.75rem;
     }
@@ -686,7 +693,7 @@ body {
     .modal {
         display: none !important;
     }
-    
+
     .dashboard-card {
         box-shadow: none;
         border: 1px solid #ddd;
