@@ -15,13 +15,18 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 import sqlite3
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 
 # Import the existing WhatsApp sender
 from whatsapp_sender.sender import WhatsAppBulkSender
 from whatsapp_sender.config import CONFIG
 
-# Global WhatsApp sender instance
+# Global WhatsApp sender instance - singleton pattern
 whatsapp_sender = None
+_sender_lock = threading.Lock()
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -59,7 +64,7 @@ def start_scheduler():
         # In debug mode, this function will be called twice. We want to start
         # the scheduler only in the child process (the one that runs the app).
         return
-    
+
     if not scheduler.running:
         scheduler.start()
         app.logger.info("APScheduler started successfully.")
@@ -97,7 +102,7 @@ class Customer(db.Model):
     email = db.Column(db.String(120), nullable=True)
     status = db.Column(db.String(20), default='Opted In')
     created_at = db.Column(db.DateTime, default=datetime.now)
-    
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -118,7 +123,7 @@ class Campaign(db.Model):
     scheduled_at = db.Column(db.DateTime, nullable=True)
     sent_count = db.Column(db.Integer, default=0)
     failed_count = db.Column(db.Integer, default=0)
-    attachment_path=db.Column(db.String(100),nullable=True)
+    # attachment_path=db.Column(db.String(100),nullable=True)
 
     # CHANGED: Use back_populates to explicitly link to the 'campaign' attribute on the other model
     recipients = db.relationship(
@@ -139,21 +144,20 @@ class Campaign(db.Model):
             'message': self.message or '',
             'scheduled_Date':self.scheduled_at.strftime('%Y-%m-%dT%H:%M') if self.scheduled_at else None,
             'status': self.status,
-            'created_at': self.created_at.strftime('%Y-%m-%d'),
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S'), #Changed the format to include time
             'sent_count': self.sent_count,
             'failed_count': self.failed_count,
-            'attachments':self.attachment_path
+            # 'attachments':self.attachment_path
         }
-
 
 class CampaignRecipient(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     campaign_id = db.Column(db.Integer, db.ForeignKey('campaign.id', ondelete='CASCADE'), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
-    
+
     # ENSURE THIS LINE EXISTS EXACTLY AS WRITTEN:
     status = db.Column(db.String(20), default='pending')
-    
+
     attempts = db.Column(db.Integer, default=0)
     recipient_name = db.Column(db.String(100), nullable=False)
     recipient_phone = db.Column(db.String(20), nullable=False)
@@ -188,159 +192,20 @@ def normalize_phone_to_digits(phone):
     s = ''.join(ch for ch in str(phone) if ch.isdigit())
     return s
 
-class ProgressTracker:
-    """Custom progress tracker that integrates with WhatsAppBulkSender"""
-    def __init__(self):
-        self.logs = []
-        self.current = 0
-        self.total = 0
-        self.success_count = 0
-        self.failure_count = 0
-
-    def log_message(self, message, msg_type='info'):
-        """Add a log message with timestamp"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}"
-        self.logs.append(log_entry)
-        
-        # Update global progress for API access
-        current_progress['logs'] = self.logs
-        current_progress['current'] = self.current
-        current_progress['total'] = self.total
-        current_progress['success_count'] = self.success_count
-        current_progress['failure_count'] = self.failure_count
-        
-        print(log_entry)
-
-    def update_progress(self, current, total):
-        """Update progress counters"""
-        self.current = current
-        self.total = total
-        current_progress['current'] = current
-        current_progress['total'] = total
-
-    def increment_success(self):
-        """Increment success counter"""
-        self.success_count += 1
-        current_progress['success_count'] = self.success_count
-
-    def increment_failure(self):
-        """Increment failure counter"""
-        self.failure_count += 1
-        current_progress['failure_count'] = self.failure_count
-
-
 class WhatsAppBulkSenderAPI(WhatsAppBulkSender):
     """Extended WhatsApp sender with API progress tracking"""
-    
+
     def __init__(self, progress_tracker=None):
         super().__init__()
-        self.tracker = progress_tracker if progress_tracker else ProgressTracker()
 
-    def process_recipients_with_progress(self, recipients, attachment_path=None):
-        """Process recipients with real-time progress updates"""
-        self.stats['start_time'] = datetime.now()
-        current_progress['start_time'] = self.stats['start_time'].isoformat()
-        self.tracker.log_message("Starting WhatsApp bulk sending process...")
-        self.tracker.update_progress(0, len(recipients))
-
-        # Initialize WebDriver
-        try:
-            self.initialize_driver()
-            self.tracker.log_message("Chrome WebDriver initialized successfully")
-        except Exception as e:
-            self.tracker.log_message(f"Failed to initialize WebDriver: {str(e)}", 'error')
-            return False
-
-        # Login to WhatsApp
-        try:
-            if not self.login_to_whatsapp():
-                self.tracker.log_message("Failed to login to WhatsApp", 'error')
-                return False
-            self.tracker.log_message("Successfully logged into WhatsApp Web")
-        except Exception as e:
-            self.tracker.log_message(f"WhatsApp login error: {str(e)}", 'error')
-            return False
-
-        # Process each recipient
-        for i, row in recipients.iterrows():
-            contact = str(row['Contact']).strip()
-            message = str(row.get('Message', '')).strip()
-
-            self.tracker.log_message(f"Processing recipient {i+1}/{len(recipients)}: {contact}")
-            self.tracker.update_progress(i, len(recipients))
-
-            success = False
-            for attempt in range(self.config['max_retries']):
-                try:
-                    if self.send_message(contact, message, attachment_path):
-                        success = True
-                        self.tracker.log_message(f"✓ Message sent successfully to {contact}")
-                        self.tracker.increment_success()
-                        break
-                    else:
-                        if attempt < self.config['max_retries'] - 1:
-                            self.tracker.log_message(f"Retry {attempt + 1} for {contact}")
-                        time.sleep(2)
-                except Exception as e:
-                    self.tracker.log_message(f"Error sending to {contact}: {str(e)}", 'error')
-                    if attempt < self.config['max_retries'] - 1:
-                        time.sleep(2)
-
-            if not success:
-                self.tracker.log_message(f"✗ Failed to send message to {contact}", 'error')
-                self.tracker.increment_failure()
-
-            # Update progress
-            self.tracker.update_progress(i + 1, len(recipients))
-            time.sleep(self.config['delay_between_messages'])
-
-        # Cleanup
-        try:
-            if self.driver:
-                self.driver.quit()
-            self.tracker.log_message("WebDriver closed successfully")
-        except Exception as e:
-            self.tracker.log_message(f"Error closing WebDriver: {str(e)}", 'error')
-
-        # Final summary
-        self.stats['end_time'] = datetime.now()
-        current_progress['end_time'] = self.stats['end_time'].isoformat()
-        duration = self.stats['end_time'] - self.stats['start_time']
-        self.tracker.log_message(
-            f"Process completed! Success: {self.tracker.success_count}, "
-            f"Failed: {self.tracker.failure_count}, Duration: {duration}"
-        )
-        return True
-
-
-def send_messages_async(recipients_path, attachment_path=None):
-    """Asynchronous message sending function using the global sender instance."""
-    global current_progress, whatsapp_sender
-
-    try:
+def get_whatsapp_sender():
+    """Get or create WhatsApp sender instance (singleton pattern)"""
+    global whatsapp_sender
+    with _sender_lock:
         if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
-            raise Exception("WhatsApp is not connected. Please connect first.")
+            whatsapp_sender = WhatsAppBulkSenderAPI()
+        return whatsapp_sender
 
-        # Wait for login confirmation
-        if not whatsapp_sender.wait_for_login():
-            raise Exception("WhatsApp login failed or timed out.")
-
-        # Each sending job gets a new tracker.
-        whatsapp_sender.tracker = ProgressTracker()
-        
-        # Load recipients from file
-        recipients_df = pd.read_excel(recipients_path)
-        
-        # Process recipients with progress updates
-        whatsapp_sender.process_recipients_with_progress(recipients_df, attachment_path)
-        
-    except Exception as e:
-        current_progress['logs'].append(f"[ERROR] {str(e)}")
-    finally:
-        # Finalize progress, but DO NOT quit the driver
-        current_progress['is_active'] = False
-        current_progress['end_time'] = datetime.now().isoformat()
 
 def process_campaign_async(campaign_id, attachment_path=None):
     """
@@ -378,10 +243,10 @@ def process_campaign_async(campaign_id, attachment_path=None):
                 'start_time': datetime.now().isoformat(),
                 'end_time': None
             })
-            print("all instance set up done")
-            # ensure sender is initialized
-            if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
-                whatsapp_sender = WhatsAppBulkSenderAPI()
+            #print("all instance set up done")
+            # ensure sender is initialized using singleton pattern
+            whatsapp_sender = get_whatsapp_sender()
+            if not whatsapp_sender.is_driver_active():
                 try:
                     whatsapp_sender.initialize_driver()
                     whatsapp_sender.login_to_whatsapp_with_wait()
@@ -400,7 +265,7 @@ def process_campaign_async(campaign_id, attachment_path=None):
                 current_progress['is_active'] = False
                 current_app.logger.error(msg)
                 return
-            print("login was sucess")
+            #print("login was sucess")
             # mark campaign running
             campaign.status = 'running'
             db.session.commit()
@@ -456,7 +321,7 @@ def process_campaign_async(campaign_id, attachment_path=None):
                     # short sleep and continue
                     time.sleep(0.5)
                     continue
-                print("max apptemps",max_retries)
+                #print("max apptemps",max_retries)
                 # perform attempts with backoff
                 for attempt in range(1, max_retries + 1):
                     attempts = attempt
@@ -472,7 +337,7 @@ def process_campaign_async(campaign_id, attachment_path=None):
                         current_app.logger.exception(f"Error sending to {phone}: {e}")
 
                     # small backoff before next retry
-                    time.sleep(int(getattr(whatsapp_sender, 'config', {}).get('delay_between_messages', 1.5)))
+                    time.sleep(int(getattr(whatsapp_sender, 'config', {}).get('max_retries', 2)))
 
                 # update recipient row
                 r.attempts = (r.attempts or 0) + attempts
@@ -566,106 +431,53 @@ def whatsapp_connection():
     """WhatsApp connection status dashboard"""
     return render_template('whatsapp.html')
 
-@app.route('/progress')
-def progress():
-    """Progress tracking dashboard"""
-    return render_template('progress.html', progress=current_progress)
-
-@app.route('/analytics')
-def analytics():
-    """Analytics dashboard"""
-    return render_template('analytics.html')
-
 @app.route('/settings')
 def settings():
     """Settings dashboard"""
     return render_template('settings.html', config=CONFIG)
 
-# API Routes
-@app.route('/api/send', methods=['POST'])
-def send_messages():
-    """Main API endpoint to start sending messages"""
-    global current_progress
-
-    # Check if already processing
-    if current_progress['is_active']:
-        return jsonify({'error': 'Another sending process is already active'}), 400
-
-    # Reset progress
-    current_progress = {
-        'is_active': False,
-        'current': 0,
-        'total': 0,
-        'logs': [],
-        'success_count': 0,
-        'failure_count': 0,
-        'start_time': None,
-        'end_time': None
-    }
-
+@app.route('/api/campaigns/<int:campaign_id>/progress', methods=['GET'])
+def get_campaign_progress(campaign_id):
+    """Get progress for a specific campaign"""
     try:
-        # Check if files are present
-        if 'recipientsFile' not in request.files:
-            return jsonify({'error': 'Recipients file is required'}), 400
+        campaign = Campaign.query.get_or_404(campaign_id)
 
-        recipients_file = request.files['recipientsFile']
-        attachment_file = request.files.get('attachmentFile')
+        # Get campaign recipients for accurate counts
+        total_recipients = CampaignRecipient.query.filter_by(campaign_id=campaign_id).count()
+        sent_count = CampaignRecipient.query.filter_by(campaign_id=campaign_id, status='sent').count()
+        failed_count = CampaignRecipient.query.filter_by(campaign_id=campaign_id, status='failed').count()
+        pending_count = CampaignRecipient.query.filter_by(campaign_id=campaign_id, status='pending').count()
+        processed_count = sent_count + failed_count
 
-        # Validate recipients file
-        if recipients_file.filename == '':
-            return jsonify({'error': 'No recipients file selected'}), 400
+        # Check if this campaign is currently active/running
+        is_active = campaign.status in ['running', 'queued']
 
-        if not allowed_file(recipients_file.filename, 'recipients'):
-            return jsonify({'error': 'Invalid recipients file format. Use .xlsx or .xls'}), 400
-
-        # Save recipients file
-        recipients_filename = secure_filename(recipients_file.filename or "recipients.xlsx")
-        recipients_path = os.path.join(UPLOAD_FOLDER, f"recipients_{int(time.time())}_{recipients_filename}")
-        recipients_file.save(recipients_path)
-
-        # Save attachment file if provided
-        attachment_path = None
-        if attachment_file and attachment_file.filename != '':
-            if not allowed_file(attachment_file.filename, 'attachments'):
-                return jsonify({'error': 'Invalid attachment file format'}), 400
-
-            attachment_filename = secure_filename(attachment_file.filename or "attachment.pdf")
-            attachment_path = os.path.join(UPLOAD_FOLDER, f"attachment_{int(time.time())}_{attachment_filename}")
-            attachment_file.save(attachment_path)
-
-        # Start async processing
-        thread = threading.Thread(
-            target=send_messages_async,
-            args=(recipients_path, attachment_path)
-        )
-        thread.daemon = True
-        thread.start()
-
-        return jsonify({
-            'message': 'Message sending started',
-            'status': 'processing'
-        })
+        # If this is the active campaign, return real-time progress
+        if is_active and current_progress['is_active']:
+            progress_data = current_progress.copy()
+            progress_data.update({
+                'campaign_id': campaign_id,
+                'campaign_name': campaign.name,
+                'campaign_status': campaign.status
+            })
+            return jsonify(progress_data)
+        else:
+            # Return static progress for completed/inactive campaigns
+            return jsonify({
+                'is_active': is_active,
+                'current': processed_count,
+                'total': total_recipients,
+                'success_count': sent_count,
+                'failure_count': failed_count,
+                'pending_count': pending_count,
+                'logs': current_progress.get('logs', [f"Campaign '{campaign.name}' status: {campaign.status}"]),
+                'campaign_status': campaign.status,
+                'campaign_id': campaign_id,
+                'campaign_name': campaign.name
+            })
 
     except Exception as e:
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
-
-@app.route('/api/progress', methods=['GET'])
-def get_progress():
-    """Get current sending progress"""
-    return jsonify(current_progress)
-
-@app.route('/api/status', methods=['GET'])
-def get_status():
-    """Get final status after completion"""
-    if current_progress['is_active']:
-        return jsonify({'status': 'processing', 'progress': current_progress})
-    else:
-        return jsonify({
-            'status': 'completed',
-            'successCount': current_progress['success_count'],
-            'failureCount': current_progress['failure_count'],
-            'logs': current_progress['logs']
-        })
+        return jsonify({'error': f'Failed to get campaign progress: {str(e)}'}), 500
 
 @app.route('/api/customers', methods=['GET'])
 def get_customers():
@@ -679,24 +491,22 @@ def get_campaigns():
     campaigns_list = Campaign.query.all()
     return jsonify([campaign.to_dict() for campaign in campaigns_list])
 
-# Removed duplicate analytics function - using real database version below
-
 # Customer Management API Endpoints
 @app.route('/api/customers', methods=['POST'])
 def add_customer():
     """Add a new customer"""
     try:
         data = request.get_json()
-        
+
         # Validate required fields
         if not data.get('name') or not data.get('phone'):
             return jsonify({'error': 'Name and phone are required'}), 400
-        
+
         # Check if phone already exists
         existing_customer = Customer.query.filter_by(phone=data['phone']).first()
         if existing_customer:
             return jsonify({'error': 'Customer with this phone number already exists'}), 400
-        
+
         # Create new customer
         customer = Customer(
             name=data['name'],
@@ -704,12 +514,12 @@ def add_customer():
             email=data.get('email', ''),
             status=data.get('status', 'Opted In')
         )
-        
+
         db.session.add(customer)
         db.session.commit()
-        
+
         return jsonify({'message': 'Customer added successfully', 'customer': customer.to_dict()}), 201
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to add customer: {str(e)}'}), 500
@@ -726,7 +536,7 @@ def update_customer(customer_id):
     try:
         customer = Customer.query.get_or_404(customer_id)
         data = request.get_json()
-        
+
         # Update fields
         if 'name' in data:
             customer.name = data['name']
@@ -740,10 +550,10 @@ def update_customer(customer_id):
             customer.email = data['email']
         if 'status' in data:
             customer.status = data['status']
-        
+
         db.session.commit()
         return jsonify({'message': 'Customer updated successfully', 'customer': customer.to_dict()})
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to update customer: {str(e)}'}), 500
@@ -756,7 +566,7 @@ def delete_customer(customer_id):
         db.session.delete(customer)
         db.session.commit()
         return jsonify({'message': 'Customer deleted successfully'})
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to delete customer: {str(e)}'}), 500
@@ -768,21 +578,21 @@ def upload_customers():
         if 'file' not in request.files:
             print("file issue")
             return jsonify({'error': 'No file provided'}), 400
-        
+
         file = request.files['file']
         if file.filename == '':
             print(" file issue 2")
             return jsonify({'error': 'No file selected'}), 400
-        
+
         if not allowed_file(file.filename, 'recipients'):
             print("123")
             return jsonify({'error': 'Invalid file format. Please upload Excel files only.'}), 400
-        
+
         # Save file
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
-        
+
         # Read Excel file
         df = pd.read_excel(filepath)
         print(df.head(1))
@@ -793,7 +603,7 @@ def upload_customers():
         if missing_columns:
             print("missing col")
             return jsonify({'error': f'Missing required columns: {", ".join(missing_columns)}'}), 400
-        
+
         added_customers = []
         errors = []
         print("congrats u came till here")
@@ -803,11 +613,11 @@ def upload_customers():
                 name = str(row['Name']).strip()
                 phone = str(row['Contact']).strip()
                 email = str(row.get('Email', '')).strip() if pd.notna(row.get('Email')) else ''
-                
+
                 if not name or not phone:
                     errors.append(f'Row {index + 2}: Name and Phone are required')
                     continue
-                
+
                 # Check if customer already exists
                 existing = Customer.query.filter_by(phone=phone).first()
                 if existing:
@@ -820,22 +630,22 @@ def upload_customers():
                 print("")
                 added_customers.append(customer)
                 print("this is the end",add_customer)
-                
+
             except Exception as e:
                 print("here")
                 print(e)
                 errors.append(f'Row {index + 2}: {str(e)}')
         print("loop done")
         db.session.commit()
-        
+
         # Clean up uploaded file
         #os.remove(filepath)
-        
+
         return jsonify({
             'message': f'Successfully added {len(added_customers)} customers',
             'errors': errors
         })
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to process file: {str(e)}'}), 500
@@ -849,7 +659,7 @@ def create_campaign(status=None):
     scheduled_date_str = None
 
     # --- Part 1: Get data from the request ---
-        
+
     if content_type.startswith('multipart/form-data'):
         # Form-data request
         data = request.form
@@ -857,10 +667,10 @@ def create_campaign(status=None):
         message = data.get('message')
         description = data.get('description', '')
         file = request.files.get('attachment')
-        scheduled_date_str = data.get('scheduled_date') 
+        scheduled_date_str = data.get('scheduled_date')
         recipients_list = json.loads(data.get('recipients', '[]'))
         status = status or data.get('status') or ('scheduled' if scheduled_date_str else 'queued')
-            
+
     else: # This path is for JSON requests like 'Save as Draft'
         data = request.get_json(force=True)
         name = data.get('name')
@@ -879,7 +689,7 @@ def create_campaign(status=None):
         raise ValueError({'error': 'Recipients list is required'})
 
     # ---Part 4: Save attachment (if provided)---
-    
+
     # --- Part 3: Build the database objects (without committing) ---
     try:
         campaign = Campaign(
@@ -889,7 +699,6 @@ def create_campaign(status=None):
             status=status,
             created_at=datetime.now(),
             scheduled_at=datetime.fromisoformat(scheduled_date_str) if scheduled_date_str else None,
-            attachment_path=attachment_path
         )
     except Exception as e:
         raise ValueError(f"Failed to create campaign: {str(e)}")
@@ -909,11 +718,11 @@ def create_campaign(status=None):
                 recipient_phone=cust.phone  # <-- Add the customer's phone
             )
             db.session.add(cr)
-    
+
     if file and file.filename != '':
         if not allowed_file(file.filename, 'attachments'):
             raise ValueError({'error': 'Attachment type not allowed'})
-        
+
         filename = secure_filename(f"{campaign.id}_{file.filename}")
         saved_path = os.path.join(UPLOAD_FOLDER, filename)
         print("LOCATion were the files gets saved",saved_path)
@@ -921,7 +730,7 @@ def create_campaign(status=None):
         if hasattr(campaign, 'attachment'):
             campaign.attachment = filename
         attachment_path=saved_path
-            
+
     return campaign, attachment_path
 
 def schedule_campaign_job(campaign_id, attachment_path):
@@ -933,8 +742,12 @@ def schedule_campaign_job(campaign_id, attachment_path):
             return
 
         job_id = f'campaign__{campaign.id}'
-        
+
         try:
+            # Convert datetime to UTC to avoid timezone serialization issues
+            # from datetime import timezone
+            # run_date = campaign.scheduled_at.replace(tzinfo=timezone.utc) if campaign.scheduled_at.tzinfo is None else campaign.scheduled_at
+            # print(run_date,"this is the run date")
             scheduler.add_job(
                 id=job_id,
                 func=process_campaign_async,
@@ -944,7 +757,7 @@ def schedule_campaign_job(campaign_id, attachment_path):
                 replace_existing=True
             )
             # Log the successful scheduling of the job
-            app.logger.info(f"Successfully scheduled campaign {campaign_id} with job ID {job_id} to run at {campaign.scheduled_at}.")
+            #app.logger.info(f"Successfully scheduled campaign {campaign_id} with job ID {job_id} to run at {run_date}.")
         except Exception as e:
             # Log any errors that occur during scheduling
             app.logger.error(f"Failed to schedule campaign {campaign_id}: {e}", exc_info=True)
@@ -965,14 +778,14 @@ def save_campaign_draft():
 @app.route('/api/campaigns/send', methods=['POST'])
 def send_campaign():
     """
-    API endpoint to either queue a campaign for immediate sending 
+    API endpoint to either queue a campaign for immediate sending
     or schedule it for a future time.
     """
     try:
-        print("1.",request.form)
+        #print("1.",request.form)
         status_from_request = request.form.get('status', 'queued')
         campaign, attachment_path = create_campaign(status_from_request)
-        print("2.",campaign,"ATTACHMENT PATH:",attachment_path)
+        #print("2.",campaign,"ATTACHMENT PATH:",attachment_path)
         db.session.commit()
 
         if campaign.status == 'queued':
@@ -1005,11 +818,11 @@ def delete_campaign(campaign_id):
         db.session.delete(campaign)
         db.session.commit()
         return jsonify({'message': 'Campaign deleted successfully'})
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to delete campaign: {str(e)}'}), 500
-    
+
 
 @app.route('/api/campaigns/<int:campaign_id>/duplicate', methods=['GET'])
 def duplicate_campaign(campaign_id):
@@ -1018,25 +831,48 @@ def duplicate_campaign(campaign_id):
         original = Campaign.query.get_or_404(campaign_id)
         print("this is duplicates data",original)
         return jsonify(original.to_dict()),200
-    
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to duplicate campaign: {str(e)}'}), 500
 
 @app.route('/api/campaigns/<int:campaign_id>/cancel', methods=['POST'])
 def cancel_campaign(campaign_id):
+    """
+    Cancels a scheduled campaign or requests cancellation for a running/queued one.
+    """
     try:
         campaign = Campaign.query.get_or_404(campaign_id)
-        # only allow cancel when queued or running
-        if campaign.status not in ('queued', 'running', 'scheduled'):
-            return jsonify({'error': f'Cannot cancel campaign in state {campaign.status}'}), 400
-        campaign.status = 'cancel_requested'
+
+        # You can only cancel campaigns that are in these states
+        valid_states_to_cancel = ['queued', 'running', 'scheduled']
+        if campaign.status not in valid_states_to_cancel:
+            return jsonify({'error': f"Cannot cancel a campaign with status '{campaign.status}'"}), 400
+
+        # If the campaign is scheduled, remove it from the scheduler directly
+        if campaign.status == 'scheduled':
+            job_id = f'campaign__{campaign.id}'
+            if scheduler.get_job(job_id):
+                scheduler.remove_job(job_id)
+                app.logger.info(f"Removed scheduled job {job_id} for campaign {campaign_id}.")
+            
+            # Directly mark as cancelled
+            campaign.status = 'cancelled'
+            message = 'Scheduled campaign has been cancelled successfully.'
+
+        # If it's already running or waiting in the queue, request a stop
+        else: # Status is 'queued' or 'running'
+            campaign.status = 'cancel_requested'
+            message = 'Cancellation has been requested for the active campaign.'
+
         db.session.commit()
-        return jsonify({'message': 'Cancel requested'}), 200
+        return jsonify({'message': message}), 200
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': f'Failed to request cancel: {str(e)}'}), 500
-    
+        app.logger.error(f"Failed to cancel campaign {campaign_id}: {e}")
+        return jsonify({'error': 'An unexpected error occurred while trying to cancel the campaign.'}), 500
+
 @app.route('/api/scheduler/jobs', methods=['GET']) #campaign schedule job endpoints
 def list_scheduled_jobs():
     """An endpoint to view all currently scheduled jobs."""
@@ -1054,13 +890,12 @@ def list_scheduled_jobs():
 @app.route('/api/whatsapp/qr', methods=['GET'])
 def get_qr_code():
     """Get QR code from WhatsApp Web, keeping the browser session alive."""
-    global whatsapp_sender
-    print("api call for qr code")
+    #print("api call for qr code")
 
     try:
-        # Initialize sender if it doesn't exist or driver is not running
-        if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
-            whatsapp_sender = WhatsAppBulkSenderAPI()
+        # Use singleton pattern to get sender instance
+        whatsapp_sender = get_whatsapp_sender()
+        if not whatsapp_sender.is_driver_active():
             whatsapp_sender.initialize_driver()
             print("Chrome WebDriver initialized successfully for QR capture")
 
@@ -1108,20 +943,23 @@ def get_qr_code():
 @app.route('/api/whatsapp/status', methods=['GET'])
 def get_whatsapp_status():
     """Check WhatsApp connection status using the global sender instance."""
-    global whatsapp_sender
-    if whatsapp_sender is None or not whatsapp_sender.is_driver_active():
-        # whatsapp_sender = WhatsAppBulkSenderAPI()
-        # whatsapp_sender.initialize_driver()
-        # print("\n\\n\n\n\n\Chrome WebDriver initialized successfully (in status api)\n\n\n\n")
+    try:
+        whatsapp_sender = get_whatsapp_sender()
+        if not whatsapp_sender.is_driver_active():
+            return jsonify({
+                'connected': False,
+                'status': 'disconnected',
+                'message': 'Not connected. Please get QR code first.',
+                'timestamp': datetime.now().isoformat()
+            })
 
-        print("this is the error")
+    except Exception as e:
         return jsonify({
             'connected': False,
-            'status': 'disconnected',
-            'message': 'Not connected. Please get QR code first.',
+            'status': 'error',
+            'message': f'Connection check failed: {str(e)}',
             'timestamp': datetime.now().isoformat()
         })
-
     try:
         if whatsapp_sender.get_connection_status():
             status = {
@@ -1145,52 +983,37 @@ def get_whatsapp_status():
             'message': f'Connection check failed: {str(e)}',
             'timestamp': datetime.now().isoformat()
         })
-
-# Analytics API - Real Database Data
-@app.route('/api/analytics', methods=['GET'])
-def get_real_analytics():
+    
+#Disconnected API
+@app.route('/api/whatsapp/disconnect', methods=['POST'])
+def disconnect_whatsapp():
+    """Disconnect the WhatsApp session."""
+    global whatsapp_sender  # Directly access the global variable to modify it
     try:
-        # Get counts from database
-        total_customers = Customer.query.count()
-        opted_in_customers = Customer.query.filter_by(status='Opted In').count()
-        total_campaigns = Campaign.query.count()
-        
-        # Calculate campaign status distribution
-        draft_campaigns = Campaign.query.filter_by(status='draft').count()
-        completed_campaigns = Campaign.query.filter_by(status='completed').count()
-        active_campaigns = Campaign.query.filter_by(status='active').count()
-        
-        # Get customer status distribution
-        pending_customers = Customer.query.filter_by(status='Pending').count()
-        
-        # Get recent campaigns
-        recent_campaigns = Campaign.query.order_by(Campaign.created_at.desc()).limit(5).all()
-        
-        analytics_data = {
-            'total_customers': total_customers,
-            'opted_in_customers': opted_in_customers,
+        # Check if there is an active session to close
+        if whatsapp_sender and whatsapp_sender.is_driver_active():
+            whatsapp_sender.quit_driver()
+            whatsapp_sender = None  # <-- CRITICAL FIX: Reset the variable
+            message = "WhatsApp disconnected successfully."
+        else:
+            # If it's already disconnected, ensure the variable is cleared
+            whatsapp_sender = None
+            message = "WhatsApp was already disconnected."
 
-            'pending_customers': pending_customers,
-            'total_campaigns': total_campaigns,
-            'draft_campaigns': draft_campaigns,
-            'completed_campaigns': completed_campaigns,
-            'active_campaigns': active_campaigns,
-            'recent_campaigns': [
-                {
-                    'id': campaign.id,
-                    'name': campaign.name,
-                    'status': campaign.status,
-                    'message': campaign.message[:50] + '...' if len(campaign.message) > 50 else campaign.message,
-                    'created_at': campaign.created_at.strftime('%Y-%m-%d %H:%M')
-                }
-                for campaign in recent_campaigns
-            ]
-        }
-        
-        return jsonify(analytics_data)
-        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        })
+
     except Exception as e:
-        return jsonify({'error': f'Failed to get analytics: {str(e)}'}), 500
+        # Ensure the variable is cleared even if an error occurs
+        whatsapp_sender = None
+        return jsonify({
+            'success': False,
+            'message': f'An error occurred during disconnection: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        })
 
 # Settings API
 @app.route('/api/settings', methods=['GET'])
@@ -1198,7 +1021,7 @@ def get_settings():
     """Get current settings"""
     return jsonify(CONFIG)
 
-#upadteing profile vasl
+#updating profile values
 @app.route('/api/settings/profile', methods=['POST'])
 def update_settings_profile():
     """
@@ -1206,10 +1029,10 @@ def update_settings_profile():
     """
     try:
         data = request.get_json()
-        
+
         user_data_dir = data.get('user_data_dir')
         profile_name = data.get('profile_name')
-        
+
         if not user_data_dir or not profile_name:
             return jsonify({'error': 'Missing user_data_dir or profile_name in request'}), 400
 
@@ -1234,11 +1057,11 @@ def update_settings_profile():
         # Write the updated content back to the file
         with open(config_file_path, 'w') as f:
             f.writelines(new_lines)
-            
+
         # Optional: Reload the config in memory for the current session
-        # This part depends on how your app is structured. 
+        # This part depends on how your app is structured.
         # For simplicity, we'll assume the app is restarted or the config is reloaded on next request.
-            
+
         return jsonify({'message': 'Settings updated and saved successfully'}), 200
 
     except Exception as e:
@@ -1253,12 +1076,12 @@ def update_settings_webdriver():
     """
     try:
         data = request.get_json()
-        
+
         max_retries = data.get('max_retries')
         delay_between_messages = data.get('delay_between_messages')
         upload_timeout = data.get('upload_timeout')
         chat_load_timeout = data.get('chat_load_timeout')
-        
+
         if not chat_load_timeout or not upload_timeout or not max_retries or not delay_between_messages:
             return jsonify({'error': 'Missing user_data_dir or profile_name in request'}), 400
 
@@ -1287,17 +1110,57 @@ def update_settings_webdriver():
         # Write the updated content back to the file
         with open(config_file_path, 'w') as f:
             f.writelines(new_lines)
-            
+
         # Optional: Reload the config in memory for the current session
-        # This part depends on how your app is structured. 
+        # This part depends on how your app is structured.
         # For simplicity, we'll assume the app is restarted or the config is reloaded on next request.
-            
+
         return jsonify({'message': 'Settings updated and saved successfully'}), 200
 
     except Exception as e:
         print(f"Error updating and saving settings: {e}")
         return jsonify({'error': 'Failed to update settings permanently'}), 500
     
+@app.route('/api/settings/api', methods=['POST'])
+def update_settings_api():
+    """Updates API and Logging settings in config.py."""
+    try:
+        data = request.get_json()
+        max_file_size = data.get('max_file_size')
+        log_level = data.get('log_level')
+
+        if max_file_size is None or not log_level:
+            return jsonify({'error': 'Missing required settings data'}), 400
+
+        config_file_path = os.path.join(os.path.dirname(__file__), 'whatsapp_sender/config.py')
+
+        with open(config_file_path, 'r') as f:
+            lines = f.readlines()
+
+        new_lines = []
+        for line in lines:
+            stripped_line = line.strip()
+
+            if "'max_file_size'" in stripped_line and ":" in stripped_line:
+                mb_value = max_file_size // (1024 * 1024)
+                new_lines.append(f"    'max_file_size': int(os.getenv('MAX_FILE_SIZE_MB', '{mb_value}')) * 1024 * 1024,\n")
+
+            elif "'log_level'" in stripped_line and ":" in stripped_line:
+                new_lines.append(f"    'log_level': os.getenv('LOG_LEVEL', '{log_level}'),\n")
+
+            else:
+                new_lines.append(line)
+
+        # Write the updated content back to the file
+        with open(config_file_path, 'w') as f:
+            f.writelines(new_lines)
+            
+        return jsonify({'message': 'API and Logging settings updated successfully'}), 200
+
+    except Exception as e:
+        app.logger.error(f"Error updating API settings: {e}")
+        return jsonify({'error': 'Failed to update settings permanently'}), 500
+
 # Backup and Restore API
 @app.route('/api/backup', methods=['GET'])
 def create_backup():
@@ -1305,25 +1168,25 @@ def create_backup():
     try:
         import json
         from datetime import datetime
-        
+
         # Get all data
         customers = Customer.query.all()
         campaigns = Campaign.query.all()
-        
+
         backup_data = {
             'timestamp': datetime.now().isoformat(),
             'customers': [customer.to_dict() for customer in customers],
             'campaigns': [campaign.to_dict() for campaign in campaigns],
             'settings': CONFIG
         }
-        
+
         # Save backup file
         backup_filename = f"whatsapp_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         backup_path = os.path.join(UPLOAD_FOLDER, backup_filename)
-        
+
         with open(backup_path, 'w') as f:
             json.dump(backup_data, f, indent=2)
-        
+
         return jsonify({
             'message': 'Backup created successfully',
             'filename': backup_filename,
@@ -1331,7 +1194,7 @@ def create_backup():
             'customers_count': len(customers),
             'campaigns_count': len(campaigns)
         })
-        
+
     except Exception as e:
         return jsonify({'error': f'Failed to create backup: {str(e)}'}), 500
 
@@ -1341,24 +1204,24 @@ def restore_backup():
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'No backup file provided'}), 400
-        
+
         file = request.files['file']
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
-        
+
         # Save uploaded file
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
-        
+
         # Read backup data
         with open(filepath, 'r') as f:
             backup_data = json.load(f)
-        
+
         # Clear existing data
         Campaign.query.delete()
         Customer.query.delete()
-        
+
         # Restore customers
         for customer_data in backup_data.get('customers', []):
             customer = Customer(
@@ -1368,7 +1231,7 @@ def restore_backup():
                 status=customer_data.get('status', 'Opted In')
             )
             db.session.add(customer)
-        
+
         # Restore campaigns
         for campaign_data in backup_data.get('campaigns', []):
             campaign = Campaign(
@@ -1378,18 +1241,18 @@ def restore_backup():
                 status=campaign_data.get('status', 'draft')
             )
             db.session.add(campaign)
-        
+
         db.session.commit()
-        
+
         # Clean up uploaded file
         os.remove(filepath)
-        
+
         return jsonify({
             'message': 'Backup restored successfully',
             'customers_restored': len(backup_data.get('customers', [])),
             'campaigns_restored': len(backup_data.get('campaigns', []))
         })
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to restore backup: {str(e)}'}), 500
