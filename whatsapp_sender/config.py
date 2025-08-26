@@ -8,8 +8,8 @@ CONFIG = {
     'chat_load_timeout': os.getenv('CHROME_PROFILE_NAME', '50'),
     
     # Chrome profile settings (IMPORTANT: Update these paths)
-    'user_data_dir': os.getenv('CHROME_USER_DATA_DIR', r'C:\Users\shara\AppData\Local\Google\Chrome\User Data'),
-    'profile_name': os.getenv('CHROME_PROFILE_NAME', 'Sharath Ragav'),
+    'user_data_dir': os.getenv('CHROME_USER_DATA_DIR', r'C:\Users\User\AppData\Local\Google\Chrome\User Data'),
+    'profile_name': os.getenv('CHROME_PROFILE_NAME', 'Chrome_Profile'),
     
     # API settings
     'upload_folder': 'uploads',
@@ -18,3 +18,4 @@ CONFIG = {
     'log_level': os.getenv('LOG_LEVEL', 'INFO'),
     'log_file': 'whatsapp_sender.log'
 }
+
