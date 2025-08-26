@@ -41,7 +41,13 @@ class WhatsAppBulkSender:
                 print(f"Error while quitting driver: {e}")
             finally:
                 self.driver = None
+
+    def is_busy(self):
+        """Check if the sender is currently busy."""
+        return self.busy
+
     def __init__(self):
+        self.busy = False
         self.driver = None
         self.config = CONFIG
         self.stats = {
@@ -268,8 +274,59 @@ class WhatsAppBulkSender:
         except Exception as e:
             print(f"Critical error sending to {contact}: {str(e)}")
             return False
-
+        
     def _send_attachment(self, file_path, caption):
+        if not self.driver:
+            print("WebDriver not initialized")
+            return False
+        try:
+            clip_btn = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, ATTACH_BUTTON_XPATH))
+            )
+            clip_btn.click()
+
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ('.jpg', '.jpeg', '.png', '.gif', '.mp4'):
+                file_input = self.driver.find_element(By.XPATH, MEDIA_INPUT_XPATH)
+            else:
+                file_input = self.driver.find_element(By.XPATH, FILE_INPUT_XPATH)
+                
+            file_input.send_keys(os.path.abspath(file_path))
+            try:
+                WebDriverWait(self.driver, self.config['upload_timeout']).until(
+                    EC.presence_of_element_located((By.XPATH, SEND_BUTTON_XPATH))
+                )
+            except TimeoutException:
+                print("Error: Attachment upload took too long")
+                self.driver.find_element(By.XPATH,CLOSE_BUTTON_XPATH).click()
+                print("Attachment upload cancelled")
+                return False
+            
+            if ext in ('.jpg', '.jpeg', '.png', '.gif', '.mp4','.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt') and caption:
+                try:
+                    caption_box = self.driver.find_element(By.XPATH, CAPTION_BOX_XPATH)
+                    pyperclip.copy(caption)
+                    caption_box.click()
+                    caption_box.send_keys(Keys.CONTROL + "v")
+
+                except Exception as e:
+                    print(f"Warning: Could not add caption, sending without it. Error: {str(e)}")
+
+            print("till caption box no issue")
+            
+            send_btn = self.driver.find_element(By.XPATH, SEND_BUTTON_XPATH)
+            send_btn.click()
+            time.sleep(int(self.config['delay_between_messages']))
+            return True
+
+        except Exception as e:
+            print("Attachment sending failed")
+            print(f"Attachment error: {str(e)}")
+            return False
+
+
+    #PREVIOS DOCUMENT ATTACHMENT CODE
+    '''def _send_attachment(self, file_path, caption):
         if not self.driver:
             print("WebDriver not initialized")
             return False
@@ -297,6 +354,7 @@ class WhatsAppBulkSender:
                 try:
                     caption_box = self.driver.find_element(By.XPATH, CAPTION_BOX_XPATH)
                     pyperclip.copy(caption)
+                    caption_box.click()
                     caption_box.send_keys(Keys.CONTROL + "v")
 
                 except Exception as e:
@@ -312,8 +370,9 @@ class WhatsAppBulkSender:
         except Exception as e:
             print("Attachment sending failed")
             print(f"Attachment error: {str(e)}")
-            return False
-
+            return False'''
+        
+    #SELENIUM WEBDRIVER WRITING FUNCTION FOR SENDING MESSAGE
     '''def _send_text_message(self, message):
 
         if not self.driver:
@@ -340,6 +399,7 @@ class WhatsAppBulkSender:
         except Exception as e:
             print(f"Text sending error: {str(e)}")
             return False'''
+    
     def _send_text_message(self, message):
         if not self.driver:
             print("WebDriver not initialized")

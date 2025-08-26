@@ -246,6 +246,12 @@ def process_campaign_async(campaign_id, attachment_path=None):
             #print("all instance set up done")
             # ensure sender is initialized using singleton pattern
             whatsapp_sender = get_whatsapp_sender()
+            if whatsapp_sender and whatsapp_sender.is_driver_active() and not whatsapp_sender.is_busy():
+                print("Previous WhatsApp Session Found.")
+                whatsapp_sender.quit_driver()
+                print("Previous WhatsApp Session Terminated.")
+                
+            whatsapp_sender.busy = True
             if not whatsapp_sender.is_driver_active():
                 try:
                     whatsapp_sender.initialize_driver()
@@ -397,6 +403,8 @@ def process_campaign_async(campaign_id, attachment_path=None):
                     db.session.commit()
             except Exception:
                 pass
+        finally:
+            whatsapp_sender.busy = False
 
 # Dashboard Routes
 @app.route('/')

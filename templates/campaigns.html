@@ -510,6 +510,8 @@ function startProgressMonitoring(campaignId) {
     console.log(activeCampaignId,"in start progeress monitor");
     // Show cancel button
     document.getElementById('cancelBtn').style.display = 'inline-block';
+    // store id on button so cancel uses it even if outer variable changes
+    document.getElementById('cancelBtn').dataset.campaignId = campaignId;
     
     // Get campaign details for banner
     fetch(`/api/campaigns/${campaignId}`)
@@ -539,7 +541,6 @@ function stopProgressMonitoring() {
         progressInterval = null;
     }
     isMonitoring=false;
-    activeCampaignId = null;
     
     // Hide cancel button and banner
     document.getElementById('cancelBtn').style.display = 'none';
@@ -715,17 +716,23 @@ function refreshCampaignTable() {
 }
 
 async function cancelRunningCampaign() {
-    if (!activeCampaignId) return;
+    const btn = document.getElementById('cancelBtn');
+    const campaignId = btn?.dataset?.campaignId || activeCampaignId;
+    if (!CampaignId) {
+        alert('No active campaign selected to cancel.');
+        return;
+    }
     
     if (confirm('Are you sure you want to cancel the running campaign?')) {
         try {
-            const response = await fetch(`/api/campaigns/${activeCampaignId}/cancel`, {
+            const response = await fetch(`/api/campaigns/${CampaignId}/cancel`, {
                 method: 'POST'
             });
             const data = await response.json();
             
             if (response.ok) {
                 addLogEntry('Campaign cancellation requested...', 'warning');
+                btn.disabled = true;
             } else {
                 alert('Error: ' + data.error);
             }
