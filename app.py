@@ -1,5 +1,6 @@
 import os
 import json
+from dotenv import load_dotenv, set_key
 import time
 import threading
 from datetime import datetime
@@ -19,6 +20,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException
+
+# Load environment variables from .env file
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(dotenv_path)
 
 # Import the existing WhatsApp sender
 from whatsapp_sender.sender import WhatsAppBulkSender
@@ -1043,32 +1048,18 @@ def update_settings_profile():
 
         if not user_data_dir or not profile_name:
             return jsonify({'error': 'Missing user_data_dir or profile_name in request'}), 400
+        
+        # Use set_key to safely update the .env file
+        set_key(dotenv_path, "CHROME_USER_DATA_DIR", user_data_dir)
+        set_key(dotenv_path, "CHROME_PROFILE_NAME", profile_name)
 
-        # Path to the config file
-        config_file_path = os.path.join(os.path.dirname(__file__), 'whatsapp_sender/config.py')
+        # Also update the in-memory CONFIG for the current session
+        CONFIG['user_data_dir'] = user_data_dir
+        CONFIG['profile_name'] = profile_name
 
-        # Read the current content of the config file
-        with open(config_file_path, 'r') as f:
-            lines = f.readlines()
-
-        new_lines = []
-        for line in lines:
-            # Replace the old 'user_data_dir' line with the new value
-            if line.strip().startswith("'user_data_dir':"):
-                new_lines.append(f"    'user_data_dir': os.getenv('CHROME_USER_DATA_DIR', r'{user_data_dir}'),\n")
-            # Replace the old 'profile_name' line with the new value
-            elif line.strip().startswith("'profile_name':"):
-                new_lines.append(f"    'profile_name': os.getenv('CHROME_PROFILE_NAME', '{profile_name}'),\n")
-            else:
-                new_lines.append(line)
-
-        # Write the updated content back to the file
-        with open(config_file_path, 'w') as f:
-            f.writelines(new_lines)
-
-        # Optional: Reload the config in memory for the current session
-        # This part depends on how your app is structured.
-        # For simplicity, we'll assume the app is restarted or the config is reloaded on next request.
+        # Update the environment variables for the current running process
+        os.environ['CHROME_USER_DATA_DIR'] = user_data_dir
+        os.environ['CHROME_PROFILE_NAME'] = profile_name
 
         return jsonify({'message': 'Settings updated and saved successfully'}), 200
 
@@ -1077,92 +1068,70 @@ def update_settings_profile():
         return jsonify({'error': 'Failed to update settings permanently'}), 500
 
 #updating webdrive(selenium) vals
+# app.py
+
 @app.route('/api/settings/websettings', methods=['POST'])
 def update_settings_webdriver():
     """
-    Updates the settings by writing the changes to config.py.
+    Updates WebDriver settings and saves them to the .env file.
     """
     try:
         data = request.get_json()
+        settings_to_update = {
+            'MAX_RETRIES': data.get('max_retries'),
+            'DELAY_BETWEEN_MESSAGES': data.get('delay_between_messages'),
+            'UPLOAD_TIMEOUT': data.get('upload_timeout'),
+            'CHAT_LOAD_TIMEOUT': data.get('chat_load_timeout')
+        }
 
-        max_retries = data.get('max_retries')
-        delay_between_messages = data.get('delay_between_messages')
-        upload_timeout = data.get('upload_timeout')
-        chat_load_timeout = data.get('chat_load_timeout')
+        # Validate that all values were sent from the frontend
+        if not all(settings_to_update.values()):
+            return jsonify({'error': 'Missing one or more WebDriver settings'}), 400
+        
+        # 1. Save each setting to the .env file for persistence
+        for key, value in settings_to_update.items():
+            set_key(dotenv_path, key, str(value))
+            # 2. Also update the live environment for the current session
+            os.environ[key] = str(value)
+        
+        # 3. Finally, update the in-memory CONFIG dictionary so changes take effect immediately
+        CONFIG.update({
+            'max_retries': str(settings_to_update['MAX_RETRIES']),
+            'delay_between_messages': str(settings_to_update['DELAY_BETWEEN_MESSAGES']),
+            'upload_timeout': str(settings_to_update['UPLOAD_TIMEOUT']),
+            'chat_load_timeout': str(settings_to_update['CHAT_LOAD_TIMEOUT'])
+        })
 
-        if not chat_load_timeout or not upload_timeout or not max_retries or not delay_between_messages:
-            return jsonify({'error': 'Missing user_data_dir or profile_name in request'}), 400
-
-        # Path to the config file
-        config_file_path = os.path.join(os.path.dirname(__file__), 'whatsapp_sender/config.py')
-
-        # Read the current content of the config file
-        with open(config_file_path, 'r') as f:
-            lines = f.readlines()
-
-        new_lines = []
-        for line in lines:
-            # Replace the old 'user_data_dir' line with the new value
-            if line.strip().startswith("'max_retries':"):
-                new_lines.append(f"    'max_retries': os.getenv('CHROME_USER_DATA_DIR', r'{max_retries}'),\n")
-            # Replace the old 'profile_name' line with the new value
-            elif line.strip().startswith("'delay_between_messages':"):
-                new_lines.append(f"    'delay_between_messages': os.getenv('CHROME_PROFILE_NAME', '{delay_between_messages}'),\n")
-            elif line.strip().startswith("'upload_timeout':"):
-                new_lines.append(f"    'upload_timeout': os.getenv('CHROME_PROFILE_NAME', '{upload_timeout}'),\n")
-            elif line.strip().startswith("'chat_load_timeout':"):
-                new_lines.append(f"    'chat_load_timeout': os.getenv('CHROME_PROFILE_NAME', '{chat_load_timeout}'),\n")
-            else:
-                new_lines.append(line)
-
-        # Write the updated content back to the file
-        with open(config_file_path, 'w') as f:
-            f.writelines(new_lines)
-
-        # Optional: Reload the config in memory for the current session
-        # This part depends on how your app is structured.
-        # For simplicity, we'll assume the app is restarted or the config is reloaded on next request.
-
-        return jsonify({'message': 'Settings updated and saved successfully'}), 200
+        return jsonify({'message': 'WebDriver settings saved successfully'}), 200
 
     except Exception as e:
-        print(f"Error updating and saving settings: {e}")
-        return jsonify({'error': 'Failed to update settings permanently'}), 500
-    
+        app.logger.error(f"Error updating WebDriver settings: {e}")
+        return jsonify({'error': 'Failed to save WebDriver settings'}), 500
+
+
 @app.route('/api/settings/api', methods=['POST'])
 def update_settings_api():
     """Updates API and Logging settings in config.py."""
     try:
         data = request.get_json()
-        max_file_size = data.get('max_file_size')
+        max_file_size_bytes = data.get('max_file_size')
         log_level = data.get('log_level')
 
-        if max_file_size is None or not log_level:
-            return jsonify({'error': 'Missing required settings data'}), 400
+        if max_file_size_bytes is None or not log_level:
+            return jsonify({'error': 'Missing required API settings data'}), 400
+        
+        # Convert bytes back to MB for saving to the .env file
+        max_file_size_mb = max_file_size_bytes // (1024 * 1024)
 
-        config_file_path = os.path.join(os.path.dirname(__file__), 'whatsapp_sender/config.py')
+        set_key(dotenv_path, "MAX_FILE_SIZE_MB", str(max_file_size_mb))
+        set_key(dotenv_path, "LOG_LEVEL", log_level)
+        
+        CONFIG['max_file_size_mb'] = max_file_size_bytes
+        CONFIG['log_level'] = log_level
 
-        with open(config_file_path, 'r') as f:
-            lines = f.readlines()
+        os.environ['MAX_FILE_SIZE_MB'] = str(max_file_size_mb)
+        os.environ['LOG_LEVEL'] = log_level
 
-        new_lines = []
-        for line in lines:
-            stripped_line = line.strip()
-
-            if "'max_file_size'" in stripped_line and ":" in stripped_line:
-                mb_value = max_file_size // (1024 * 1024)
-                new_lines.append(f"    'max_file_size': int(os.getenv('MAX_FILE_SIZE_MB', '{mb_value}')) * 1024 * 1024,\n")
-
-            elif "'log_level'" in stripped_line and ":" in stripped_line:
-                new_lines.append(f"    'log_level': os.getenv('LOG_LEVEL', '{log_level}'),\n")
-
-            else:
-                new_lines.append(line)
-
-        # Write the updated content back to the file
-        with open(config_file_path, 'w') as f:
-            f.writelines(new_lines)
-            
         return jsonify({'message': 'API and Logging settings updated successfully'}), 200
 
     except Exception as e:
